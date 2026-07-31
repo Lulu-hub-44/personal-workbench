@@ -1449,6 +1449,10 @@
     const low = calVals.filter((v) => v < 1200).length;
     const wVals = Object.values(wt).filter((x) => x != null).map(Number);
     const wLast = wVals.length ? wVals[wVals.length - 1] : null;
+    const wDays = Object.keys(wt).map(Number).filter((d) => wt[d] != null).sort((a, b) => a - b);
+    const wFirst = wDays.length ? Number(wt[wDays[0]]) : null;       // 月初体重（当月最早记录）
+    const wMonthEnd = wDays.length ? Number(wt[wDays[wDays.length - 1]]) : null; // 月末体重（当月最晚记录）
+    const wLoss = wFirst != null && wMonthEnd != null ? wFirst - wMonthEnd : null; // 本月减重（正=减）
     let cumDef = 0,
       defDays = 0;
     Object.keys(cal.days).forEach((d) => {
@@ -1490,6 +1494,13 @@
           <div class="mp-stat"><div class="k">超标天数 (>1800)</div><div class="n">${over}<span class="u">天</span></div></div>
           <div class="mp-stat"><div class="k">低热量天数 (<1200)</div><div class="n">${low}<span class="u">天</span></div></div>
           <div class="mp-stat"><div class="k">体重记录天数</div><div class="n">${wVals.length}</div></div>
+          <div class="mp-stat"><div class="k">月初体重</div><div class="n">${wFirst != null ? wFirst.toFixed(1) : "—"}<span class="u">kg</span></div></div>
+          <div class="mp-stat"><div class="k">月末体重</div><div class="n">${wMonthEnd != null ? wMonthEnd.toFixed(1) : "—"}<span class="u">kg</span></div></div>
+          <div class="mp-stat"><div class="k">本月减重</div><div class="n">${
+            wLoss != null
+              ? (wLoss > 0 ? "−" : wLoss < 0 ? "+" : "") + Math.abs(wLoss).toFixed(1)
+              : "—"
+          }<span class="u">kg${wLoss != null ? (wLoss > 0 ? "（减重）" : wLoss < 0 ? "（增重）" : "") : ""}</span></div></div>
           <div class="mp-stat"><div class="k">最新体重</div><div class="n">${wLast != null ? wLast.toFixed(1) : "—"}<span class="u">kg</span></div></div>
           <div class="mp-stat"><div class="k">累计热量差值</div><div class="n">${defDays ? Math.round(cumDef) : "—"}<span class="u">大卡</span></div></div>
           <div class="mp-stat"><div class="k">预计减脂</div><div class="n">${defDays ? fatKg.toFixed(2) : "—"}<span class="u">kg</span></div></div>
