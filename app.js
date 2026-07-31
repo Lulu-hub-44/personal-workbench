@@ -61,7 +61,61 @@
     u.searchParams.set("key", key);
     return u.href;
   }
-  async function pushSync() {
+  /* ---------- GitHub Gist 云同步后端（纯静态站点可用，无需服务器） ---------- */
+  const GH_API = "https://api.github.com";
+  function ghToken() { return localStorage.getItem("wbGhToken_v1") || ""; }
+  async function ghApi(method, path, body) {
+    const tk = ghToken();
+    if (!tk) throw new Error("请先在上方填写 GitHub 私人令牌");
+    let r;
+    try {
+      r = await fetch(GH_API + path, {
+        method,
+        headers: {
+          "Authorization": "Bearer " + tk,
+          "Content-Type": "application/json",
+          "Accept": "application/vnd.github+json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) {
+      throw new Error("网络请求失败：" + e.message);
+    }
+    if (r.status === 401) throw new Error("GitHub 令牌无效或缺少 gist 权限");
+    if (r.status === 403) throw new Error("GitHub 限流，请稍后重试");
+    if (r.status === 404 && method === "GET") throw new Error("Gist 不存在");
+    if (!r.ok) throw new Error("GitHub 错误(" + r.status + ")");
+    return r.json();
+  }
+  async function ghEnsureGist() {
+    let id = localStorage.getItem("wbGhGist_v1");
+    if (id) {
+      try { await ghApi("GET", "/gists/" + id); return id; }
+      catch (e) { /* 失效则重建 */ }
+    }
+    const init = { _meta: "personal-workbench-sync", slots: {} };
+    const g = await ghApi("POST", "/gists", {
+      description: "personal-workbench-sync",
+      public: false,
+      files: { "sync.json": { content: JSON.stringify(init) } },
+    });
+    id = g.id;
+    localStorage.setItem("wbGhGist_v1", id);
+    return id;
+  }
+  async function ghReadAll() {
+    const id = await ghEnsureGist();
+    const g = await ghApi("GET", "/gists/" + id);
+    const content = g.files && g.files["sync.json"] ? g.files["sync.json"].content : "{}";
+    try { return JSON.parse(content); } catch (e) { return { _meta: "personal-workbench-sync", slots: {} }; }
+  }
+  async function ghWriteAll(all) {
+    const id = await ghEnsureGist();
+    await ghApi("PATCH", "/gists/" + id, { files: { "sync.json": { content: JSON.stringify(all) } } });
+  }
+
+  /* ---------- 原后端服务器同步（自托管 / 预览环境可用） ---------- */
+  async function pushSyncServer() {
     if (!syncCfg.key) return false;
     const url = syncUrl(syncCfg.key);
     let r;
@@ -72,21 +126,21 @@
         body: JSON.stringify(state),
       });
     } catch (e) {
-      throw new Error("网络请求失败，请检查链接能否访问：" + url + " (" + e.message + ")");
+      throw new Error("网络请求失败：" + e.message);
     }
     if (!r.ok) throw new Error("上传失败(" + r.status + ")");
     const j = await r.json();
     setLastSync(j.savedAt || Date.now());
     return true;
   }
-  async function pullSync(force) {
+  async function pullSyncServer(force) {
     if (!syncCfg.key) return false;
     const url = syncUrl(syncCfg.key);
     let r;
     try {
       r = await fetch(url);
     } catch (e) {
-      throw new Error("网络请求失败，请检查链接能否访问：" + url + " (" + e.message + ")");
+      throw new Error("网络请求失败：" + e.message);
     }
     if (r.status === 404) return false;
     if (!r.ok) throw new Error("下载失败(" + r.status + ")");
@@ -100,14 +154,47 @@
     renderCurrentView();
     return true;
   }
+
+  /* ---------- 统一入口：有 GitHub 令牌走 Gist，否则走后端服务器 ---------- */
+  async function pushSync() {
+    if (ghToken()) {
+      if (!syncCfg.key) syncCfg.key = "default";
+      const all = await ghReadAll();
+      all.slots = all.slots || {};
+      all.slots[syncCfg.key] = { data: state, savedAt: Date.now() };
+      await ghWriteAll(all);
+      setLastSync(Date.now());
+      return true;
+    }
+    return pushSyncServer();
+  }
+  async function pullSync(force) {
+    if (ghToken()) {
+      if (!syncCfg.key) syncCfg.key = "default";
+      const all = await ghReadAll();
+      const slot = all.slots && all.slots[syncCfg.key];
+      if (!slot || !slot.data) return false;
+      if (!force && getLastSync() && slot.savedAt && slot.savedAt <= getLastSync()) return false;
+      // 合并默认结构，防止云端旧数据缺少字段导致渲染报错
+      state = Object.assign(defaultState(), slot.data);
+      save();
+      setLastSync(slot.savedAt || Date.now());
+      renderCurrentView();
+      return true;
+    }
+    return pullSyncServer(force);
+  }
+
   function openSyncModal() {
     modal.innerHTML = `
-      <h3>☁ 云同步</h3>
-      <p class="muted">在手机和电脑的浏览器里填入<strong>相同的同步码</strong>，即可跨设备共享数据。同步码既是账号也是密码，请自定且不要使用常用密码。<br>若部署在纯静态托管（如 GitHub Pages）且没有后端服务，云端同步将不可用，请改用「⚙ 数据 → 导入/导出」在设备间迁移数据。</p>
-      <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">同步码</label>
-      <input class="modal-input" id="s-key" type="text" value="${syncCfg.key || ""}" placeholder="例如 MyWorkbench2026" />
+      <h3>☁ 云同步（GitHub）</h3>
+      <p class="muted">数据存到你 GitHub 账号下的<strong>私有 Gist</strong>，手机和电脑用<strong>同一个令牌</strong>即可同步。令牌仅保存在本机浏览器，可随时在 GitHub 撤销。<br>获取令牌：github.com → 头像 → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token → <strong>只勾 gist</strong> → 30 天 → 复制填下面。</p>
+      <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">GitHub 私人令牌</label>
+      <input class="modal-input" id="s-token" type="password" value="${ghToken()}" placeholder="ghp_..." autocomplete="off" />
+      <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">同步槽（可选，留空=default）</label>
+      <input class="modal-input" id="s-key" type="text" value="${syncCfg.key && syncCfg.key !== "default" ? syncCfg.key : ""}" placeholder="default" />
       <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:13px;color:var(--ink-2)">
-        <input type="checkbox" id="s-auto" ${syncCfg.auto ? "checked" : ""}/> 自动同步（改动后自动上传；打开网页时自动拉取云端更新）
+        <input type="checkbox" id="s-auto" ${syncCfg.auto ? "checked" : ""}/> 自动同步（改动后自动上传；打开网页时自动拉取）
       </label>
       <div id="s-status" class="muted" style="min-height:18px;margin-bottom:8px"></div>
       <div class="modal-actions">
@@ -118,8 +205,11 @@
     mask.hidden = false;
     const st = () => $("#s-status");
     $("#s-close").onclick = closeModal;
+    $("#s-token").addEventListener("input", () => {
+      localStorage.setItem("wbGhToken_v1", $("#s-token").value.trim());
+    });
     $("#s-key").addEventListener("input", () => {
-      syncCfg.key = $("#s-key").value.trim();
+      syncCfg.key = $("#s-key").value.trim() || "default";
       persistSyncCfg();
     });
     $("#s-auto").addEventListener("change", () => {
@@ -127,37 +217,29 @@
       persistSyncCfg();
     });
     $("#s-up").onclick = async () => {
-      syncCfg.key = $("#s-key").value.trim();
+      syncCfg.key = $("#s-key").value.trim() || "default";
       syncCfg.auto = $("#s-auto").checked;
       persistSyncCfg();
-      if (!syncCfg.key) {
-        st().textContent = "请先填写同步码";
-        return;
-      }
+      localStorage.setItem("wbGhToken_v1", $("#s-token").value.trim());
+      if (!ghToken()) { st().textContent = "请先填写 GitHub 私人令牌"; return; }
       st().textContent = "上传中…";
       try {
         await pushSync();
-        st().textContent = "✅ 已上传到云端";
-      } catch (e) {
-        st().textContent = "❌ " + e.message;
-      }
+        st().textContent = "✅ 已上传到云端(GitHub Gist)";
+      } catch (e) { st().textContent = "❌ " + e.message; }
     };
     $("#s-down").onclick = async () => {
-      syncCfg.key = $("#s-key").value.trim();
+      syncCfg.key = $("#s-key").value.trim() || "default";
       syncCfg.auto = $("#s-auto").checked;
       persistSyncCfg();
-      if (!syncCfg.key) {
-        st().textContent = "请先填写同步码";
-        return;
-      }
+      localStorage.setItem("wbGhToken_v1", $("#s-token").value.trim());
+      if (!ghToken()) { st().textContent = "请先填写 GitHub 私人令牌"; return; }
       if (!confirm("从云端下载会覆盖本机当前数据，确定继续？")) return;
       st().textContent = "下载中…";
       try {
         const ok = await pullSync(true);
-        st().textContent = ok ? "✅ 已下载并覆盖本机" : "云端暂无数据";
-      } catch (e) {
-        st().textContent = "❌ " + e.message;
-      }
+        st().textContent = ok ? "✅ 已下载并覆盖本机" : "云端暂无数据(该同步槽为空)";
+      } catch (e) { st().textContent = "❌ " + e.message; }
     };
   }
 
