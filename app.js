@@ -61,9 +61,23 @@
     u.searchParams.set("key", key);
     return u.href;
   }
-  /* ---------- GitHub Gist 云同步后端（纯静态站点可用，无需服务器） ---------- */
+  /* ---------- GitHub 私有仓库云同步后端（纯静态站点可用，无需服务器） ---------- */
   const GH_API = "https://api.github.com";
+  const GH_SYNC_REPO = "pw-sync-store";   // 自动创建的私有仓库名
+  const GH_SYNC_FILE = "sync.json";
   function ghToken() { return localStorage.getItem("wbGhToken_v1") || ""; }
+  function ghLogin() { return localStorage.getItem("wbGhLogin_v1") || ""; }
+  function b64enc(str) {                     // UTF-8 安全 base64
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    return btoa(bin);
+  }
+  function b64dec(b64) {
+    const bin = atob(b64);
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
   async function ghApi(method, path, body) {
     const tk = ghToken();
     if (!tk) throw new Error("请先在上方填写 GitHub 私人令牌");
@@ -81,37 +95,46 @@
     } catch (e) {
       throw new Error("网络请求失败：" + e.message);
     }
-    if (r.status === 401) throw new Error("GitHub 令牌无效或缺少 gist 权限");
+    if (r.status === 401) throw new Error("GitHub 令牌无效或权限不足（需 repo 权限）");
     if (r.status === 403) throw new Error("GitHub 限流，请稍后重试");
-    if (r.status === 404 && method === "GET") throw new Error("Gist 不存在");
-    if (!r.ok) throw new Error("GitHub 错误(" + r.status + ")");
+    if (r.status === 204) return null;
+    if (!r.ok && !(r.status === 404 && method === "GET")) throw new Error("GitHub 错误(" + r.status + ")");
     return r.json();
   }
-  async function ghEnsureGist() {
-    let id = localStorage.getItem("wbGhGist_v1");
-    if (id) {
-      try { await ghApi("GET", "/gists/" + id); return id; }
-      catch (e) { /* 失效则重建 */ }
-    }
-    const init = { _meta: "personal-workbench-sync", slots: {} };
-    const g = await ghApi("POST", "/gists", {
-      description: "personal-workbench-sync",
-      public: false,
-      files: { "sync.json": { content: JSON.stringify(init) } },
+  async function ghLoginGet() {
+    if (ghLogin()) return ghLogin();
+    const u = await ghApi("GET", "/user");
+    localStorage.setItem("wbGhLogin_v1", u.login);
+    return u.login;
+  }
+  async function ghEnsureRepo(owner) {
+    const r = await ghApi("GET", "/repos/" + owner + "/" + GH_SYNC_REPO);
+    if (r) return;
+    await ghApi("POST", "/user/repos", {
+      name: GH_SYNC_REPO,
+      private: true,
+      description: "个人工作台云同步私有仓库",
+      auto_init: false,
     });
-    id = g.id;
-    localStorage.setItem("wbGhGist_v1", id);
-    return id;
   }
   async function ghReadAll() {
-    const id = await ghEnsureGist();
-    const g = await ghApi("GET", "/gists/" + id);
-    const content = g.files && g.files["sync.json"] ? g.files["sync.json"].content : "{}";
-    try { return JSON.parse(content); } catch (e) { return { _meta: "personal-workbench-sync", slots: {} }; }
+    const owner = await ghLoginGet();
+    await ghEnsureRepo(owner);
+    const r = await ghApi("GET", "/repos/" + owner + "/" + GH_SYNC_REPO + "/contents/" + GH_SYNC_FILE);
+    if (!r) return { _meta: "personal-workbench-sync", slots: {} };
+    try { return JSON.parse(b64dec(r.content)); } catch (e) { return { _meta: "personal-workbench-sync", slots: {} }; }
   }
   async function ghWriteAll(all) {
-    const id = await ghEnsureGist();
-    await ghApi("PATCH", "/gists/" + id, { files: { "sync.json": { content: JSON.stringify(all) } } });
+    const owner = await ghLoginGet();
+    await ghEnsureRepo(owner);
+    const content = b64enc(JSON.stringify(all));
+    let sha = null;
+    try {
+      const cur = await ghApi("GET", "/repos/" + owner + "/" + GH_SYNC_REPO + "/contents/" + GH_SYNC_FILE);
+      if (cur && cur.sha) sha = cur.sha;
+    } catch (e) { /* 文件不存在则创建 */ }
+    await ghApi("PUT", "/repos/" + owner + "/" + GH_SYNC_REPO + "/contents/" + GH_SYNC_FILE,
+      { message: "sync", content, sha });
   }
 
   /* ---------- 原后端服务器同步（自托管 / 预览环境可用） ---------- */
@@ -188,7 +211,7 @@
   function openSyncModal() {
     modal.innerHTML = `
       <h3>☁ 云同步（GitHub）</h3>
-      <p class="muted">数据存到你 GitHub 账号下的<strong>私有 Gist</strong>，手机和电脑用<strong>同一个令牌</strong>即可同步。令牌仅保存在本机浏览器，可随时在 GitHub 撤销。<br>获取令牌：github.com → 头像 → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token → <strong>只勾 gist</strong> → 30 天 → 复制填下面。</p>
+      <p class="muted">数据存到你 GitHub 账号下的一个<strong>私有仓库 pw-sync-store</strong>（首次同步自动创建），手机和电脑用<strong>同一个令牌</strong>即可同步。令牌仅保存在本机浏览器，可随时在 GitHub 撤销。<br>获取令牌：github.com → 头像 → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token → <strong>勾选 repo</strong> → 30 天 → 复制填下面。</p>
       <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">GitHub 私人令牌</label>
       <input class="modal-input" id="s-token" type="password" value="${ghToken()}" placeholder="ghp_..." autocomplete="off" />
       <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">同步槽（可选，留空=default）</label>
@@ -225,7 +248,7 @@
       st().textContent = "上传中…";
       try {
         await pushSync();
-        st().textContent = "✅ 已上传到云端(GitHub Gist)";
+        st().textContent = "✅ 已上传到云端(GitHub 私有仓库)";
       } catch (e) { st().textContent = "❌ " + e.message; }
     };
     $("#s-down").onclick = async () => {
