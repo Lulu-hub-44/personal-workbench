@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>个人工作台 · Personal Workbench</title>
+  <meta name="theme-color" content="#B6A6D6" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="工作台" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css?v=3" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- 左侧导航栏 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">✦</div>
+        <div class="brand-text">
+          <div class="brand-title">个人工作台</div>
+          <div class="brand-sub">Personal Workbench</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="weight">
+          <span class="nav-ic">⚖️</span><span class="nav-label">体重管理</span>
+        </button>
+        <button class="nav-item" data-view="mood">
+          <span class="nav-ic">🌤️</span><span class="nav-label">每日心情</span>
+        </button>
+        <button class="nav-item" data-view="work">
+          <span class="nav-ic">💼</span><span class="nav-label">工作情况</span>
+        </button>
+        <button class="nav-item" data-view="monthly">
+          <span class="nav-ic">📓</span><span class="nav-label">月度总结</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button class="ghost-btn" id="btn-export">导出数据</button>
+        <button class="ghost-btn" id="btn-import">导入数据</button>
+        <input type="file" id="file-import" accept="application/json" hidden />
+        <div class="sidebar-tip">数据保存在本机浏览器<br />建议定期导出备份</div>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title" id="view-title">体重管理</div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" id="btn-data">⚙ 数据</button>
+          <button class="ghost-btn" id="btn-sync">☁ 云同步</button>
+          <label class="month-pick">
+            <span>月份</span>
+            <input type="month" id="month-input" />
+          </label>
+        </div>
+      </header>
+
+      <!-- 体重管理 -->
+      <section class="view active" id="view-weight">
+        <!-- 身体参数 + 月经周期 -->
+        <div class="card">
+          <div class="card-head" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+            <div>
+              <h2>身体参数与月经周期</h2>
+              <p class="muted">用于计算每日热量差值与体重预测（排卵期 / 经期储水）</p>
+            </div>
+            <div class="row-actions">
+              <button class="ghost-btn" id="btn-profile">身体参数</button>
+              <button class="ghost-btn" id="btn-menstrual">月经设置</button>
+            </div>
+          </div>
+          <div class="stat-grid" id="profile-stats"></div>
+          <div id="phase-block" style="margin-top:16px">
+            <div class="muted" style="margin-bottom:8px">本月月经相位（储水提示）</div>
+            <div class="phase-msg muted" id="phase-msg"></div>
+            <div class="phase-strip" id="phase-strip"></div>
+            <div class="phase-legend" id="phase-legend"></div>
+          </div>
+        </div>
+
+        <!-- 热量热力表 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>每日热量热力表</h2>
+            <p class="muted">点击日期格子录入当天「热量 / 体重 / 运动消耗」。</p>
+          </div>
+          <div class="legend" id="weight-legend"></div>
+          <div class="heatmap-wrap">
+            <div class="weekdays">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="heatmap" id="weight-heatmap"></div>
+          </div>
+        </div>
+
+        <!-- 热量与差值统计 -->
+        <div class="card">
+          <div class="card-head"><h2>热量与差值统计</h2></div>
+          <div class="stat-grid" id="weight-stats"></div>
+        </div>
+
+        <!-- 热量失控预警 -->
+        <div class="card" id="calorie-alert-card" hidden>
+          <div class="card-head"><h2>⚠️ 热量失控预警</h2></div>
+          <div id="calorie-alert"></div>
+        </div>
+
+        <!-- 超标诱因 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>热量超标日（&gt;1800）诱因备注</h2>
+            <p class="muted">记录每天吃超的原因，便于月底复盘。</p>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="weight-over-table">
+              <thead><tr><th>日期</th><th>热量(大卡)</th><th>诱因备注</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 低热量诱因 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>低热量日（&lt;1200）诱因备注</h2>
+            <p class="muted">记录每天吃太少的原因，便于分析节食模式、防止报复性进食。</p>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="weight-under-table">
+              <thead><tr><th>日期</th><th>热量(大卡)</th><th>诱因备注</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 体重趋势与预测 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>体重趋势与预测</h2>
+            <p class="muted">实线=记录体重；虚线=去水后(真实减脂)体重；灰虚线=按趋势+经期储水预测。</p>
+          </div>
+          <div class="chart-box" style="height:300px"><canvas id="weight-chart"></canvas></div>
+          <div class="table-wrap" style="margin-top:16px">
+            <table class="data-table" id="weight-table">
+              <thead><tr><th>日期</th><th>体重(kg)</th><th>热量差值</th><th>相位</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 分析预测 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>分析 · 预测</h2>
+            <p class="muted">结合体重趋势与月经周期，重点说明排卵期与经期储水对体重的影响。</p>
+          </div>
+          <div id="weight-analysis"></div>
+        </div>
+
+        <!-- 批量导入 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>批量导入 / 快速录入</h2>
+            <p class="muted">格式：<code>日,热量,体重,运动消耗</code>（后两项可空），例 <code>1,1480,55.2,200</code>。</p>
+          </div>
+          <textarea id="weight-bulk" class="bulk-input" placeholder="1,1480,55.2,200&#10;2,1650,,150&#10;3,1820,55.0,0"></textarea>
+          <div class="row-actions">
+            <button class="primary-btn" id="btn-weight-bulk">应用批量数据</button>
+            <span class="muted" id="weight-bulk-tip"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 每日心情 -->
+      <section class="view" id="view-mood">
+        <div class="card">
+          <div class="card-head">
+            <h2>每日心情录入</h2>
+            <p class="muted">从「非常不开心 -2」到「非常开心 2」，点击日期格子选择当天心情。</p>
+          </div>
+          <div class="legend" id="mood-legend"></div>
+          <div class="heatmap-wrap">
+            <div class="weekdays">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="heatmap" id="mood-heatmap"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>心情统计</h2></div>
+          <div class="stat-grid" id="mood-stats"></div>
+          <div class="chart-box"><canvas id="mood-chart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- 工作情况 -->
+      <section class="view" id="view-work">
+        <div class="card">
+          <div class="card-head">
+            <h2>每日忙碌度录入</h2>
+            <p class="muted">从「不忙碌 0」到「非常忙碌 100」，拖动日期格子上的滑块记录当天忙碌程度。</p>
+          </div>
+          <div class="legend" id="work-legend"></div>
+          <div class="heatmap-wrap">
+            <div class="weekdays">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="heatmap" id="work-heatmap"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>加班与排班</h2></div>
+          <div class="form-grid" id="work-overtime"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>工作统计</h2></div>
+          <div class="stat-grid" id="work-stats"></div>
+          <div class="chart-box"><canvas id="work-chart"></canvas></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>每月工作小结</h2></div>
+          <textarea id="work-summary" class="bulk-input" placeholder="本月工作状态、收获与改进……"></textarea>
+        </div>
+      </section>
+
+      <!-- 月度总结 -->
+      <section class="view" id="view-monthly">
+        <div class="monthly-nav" id="monthly-nav"></div>
+        <div id="monthly-panels"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 弹层：日期录入 -->
+  <div class="modal-mask" id="modal-mask" hidden>
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <script src="app.js?v=3"></script>
+</body>
+</html>
