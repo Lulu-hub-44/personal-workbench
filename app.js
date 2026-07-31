@@ -350,6 +350,23 @@
     if (v < 80) return "忙碌";
     return "非常忙碌";
   }
+  /* 三档忙碌度分类与配色：不忙碌(0-49)绿 / 适中(50)蓝 / 忙碌(51-100)橘 */
+  const LEVEL = {
+    low: { label: "不忙碌", color: "#3FA34D" },
+    mid: { label: "适中", color: "#3B82F6" },
+    high: { label: "忙碌", color: "#E08A3C" },
+  };
+  function busyLevel(v) {
+    v = Number(v);
+    if (v == null || isNaN(v)) return null;
+    if (v <= 49) return "low";
+    if (v === 50) return "mid";
+    return "high";
+  }
+  function levelColor(v) {
+    const lv = busyLevel(v);
+    return lv ? LEVEL[lv].color : "rgba(0,0,0,.06)";
+  }
 
   /* ---------- 月经相位 ---------- */
   const PHASE = {
@@ -1244,16 +1261,16 @@
     const data = ensureWork();
     const total = daysInMonth();
     $("#work-legend").innerHTML = `
-      <span class="lg"><span class="dot" style="background:#E7DFD0"></span>0 不忙碌</span>
-      <span class="lg"><span class="dot" style="background:${busyColor(50)}"></span>50 适中</span>
-      <span class="lg"><span class="dot" style="background:#9B7FB0"></span>100 非常忙碌</span>`;
+      <span class="lg"><span class="dot" style="background:${LEVEL.low.color}"></span>0–49 不忙碌</span>
+      <span class="lg"><span class="dot" style="background:${LEVEL.mid.color}"></span>50 适中</span>
+      <span class="lg"><span class="dot" style="background:${LEVEL.high.color}"></span>51–100 忙碌</span>`;
     const hm = $("#work-heatmap");
     let html = "";
     const off = firstOffset();
     for (let i = 0; i < off; i++) html += `<div></div>`;
     for (let d = 1; d <= total; d++) {
       const v = data.busy[d];
-      const bg = busyColor(v);
+      const bg = levelColor(v);
       html += `<div class="hcell" data-day="${d}" style="${bg ? "background:" + bg : ""}">
         <span class="d">${d}</span>
         <span class="v ${v == null ? "" : "vsmall"}">${v == null ? "—" : v}</span>
@@ -1334,15 +1351,26 @@
     const avg = logged ? Math.round(vals.reduce((a, b) => a + b, 0) / logged) : 0;
     const min = logged ? Math.min(...vals) : 0;
     const max = logged ? Math.max(...vals) : 0;
+    const low = vals.filter((v) => busyLevel(v) === "low").length;
+    const mid = vals.filter((v) => busyLevel(v) === "mid").length;
+    const high = vals.filter((v) => busyLevel(v) === "high").length;
     $("#work-stats").innerHTML = [
       ["录入天数", logged, "天"],
       ["平均忙碌度", avg, "/100"],
       ["最低 / 最高", `${min} / ${max}`, ""],
+      ["不忙碌", low, "天", LEVEL.low.color],
+      ["适中", mid, "天", LEVEL.mid.color],
+      ["忙碌", high, "天", LEVEL.high.color],
       ["加班天数", ot.days || 0, "天"],
       ["加班小时", ot.hours || 0, "h"],
       ["周六加班", `${ot.satDays || 0}天 / ${ot.satHours || 0}h`, ""],
     ]
-      .map(([k, n, u]) => `<div class="stat"><div class="k">${k}</div><div class="n">${n}<span class="u">${u}</span></div></div>`)
+      .map(
+        ([k, n, u, c]) =>
+          `<div class="stat"><div class="k">${
+            c ? `<span class="dot" style="background:${c};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle"></span>` : ""
+          }${k}</div><div class="n"${c ? ` style="color:${c}"` : ""}>${n}<span class="u">${u}</span></div></div>`
+      )
       .join("");
   }
   let workChart;
@@ -1360,7 +1388,7 @@
       type: "bar",
       data: {
         labels,
-        datasets: [{ label: "忙碌度", data: series, backgroundColor: "rgba(155,127,176,.7)", borderRadius: 4 }],
+        datasets: [{ label: "忙碌度", data: series, backgroundColor: series.map((v) => (v == null ? "rgba(0,0,0,.06)" : levelColor(v))), borderRadius: 4 }],
       },
       options: {
         responsive: true,
