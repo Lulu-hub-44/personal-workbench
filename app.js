@@ -1947,15 +1947,148 @@
   }
 
   /* ============================================================
+     6) 宝宝（按日期记录身高 / 体重）
+     ============================================================ */
+  function ensureBaby() {
+    if (!state.baby) state.baby = {};
+    return state.baby;
+  }
+  function ensureBabyMonth() {
+    const b = ensureBaby();
+    const k = monthKey();
+    if (!b[k]) b[k] = {};
+    return b[k];
+  }
+  let babyChart;
+  function renderBaby() {
+    const b = ensureBaby();
+    const month = monthKey();
+    const bm = b[month] || {};
+    const days = Object.keys(bm).map(Number).sort((a, b) => a - b);
+    const tb = $("#baby-table tbody");
+    tb.innerHTML = days.length
+      ? days
+          .map(
+            (d) => {
+              const r = bm[d] || {};
+              return `<tr><td>${month}-${pad(d)}</td><td>${r.h != null ? Number(r.h).toFixed(1) : "—"}</td><td>${r.w != null ? Number(r.w).toFixed(2) : "—"}</td><td><button class="link-btn danger" data-act="del-baby" data-d="${d}">删</button></td></tr>`;
+            }
+          )
+          .join("")
+      : `<tr class="empty-row"><td colspan="4">本月还没记录宝宝的身高体重</td></tr>`;
+    const de = $("#baby-date");
+    if (de) {
+      const mk = monthKey();
+      const today = todayKey();
+      if (!de.value || !de.value.startsWith(mk + "-")) {
+        de.value = today.startsWith(mk + "-") ? today : mk + "-01";
+      }
+    }
+    drawBabyChart();
+  }
+  function drawBabyChart() {
+    const b = ensureBaby();
+    const all = [];
+    for (const mk in b) {
+      for (const d in b[mk]) {
+        const r = b[mk][d] || {};
+        if (r.h == null && r.w == null) continue;
+        all.push({ date: `${mk}-${pad(d)}`, h: r.h != null ? Number(r.h) : null, w: r.w != null ? Number(r.w) : null });
+      }
+    }
+    all.sort((a, c) => a.date.localeCompare(c.date));
+    const ctx = $("#baby-chart");
+    if (!ctx || typeof Chart === "undefined") return;
+    if (babyChart) babyChart.destroy();
+    const many = all.length > 20;
+    babyChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: all.map((x) => x.date),
+        datasets: [
+          {
+            label: "身高(cm)",
+            data: all.map((x) => x.h),
+            borderColor: "#9FBBD6",
+            backgroundColor: "rgba(159,187,214,.15)",
+            yAxisID: "yH",
+            tension: 0.3,
+            spanGaps: true,
+            pointRadius: many ? 2 : 4,
+            fill: true,
+          },
+          {
+            label: "体重(kg)",
+            data: all.map((x) => x.w),
+            borderColor: "#E6B583",
+            backgroundColor: "rgba(230,181,131,.12)",
+            yAxisID: "yW",
+            tension: 0.3,
+            spanGaps: true,
+            pointRadius: many ? 2 : 4,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          yH: { position: "left", title: { display: true, text: "身高(cm)" } },
+          yW: { position: "right", title: { display: true, text: "体重(kg)" }, grid: { drawOnChartArea: false } },
+          x: { ticks: { maxTicksLimit: 12 } },
+        },
+        plugins: { legend: { display: true }, tooltip: { intersect: false } },
+      },
+    });
+  }
+  function addBaby() {
+    const dEl = $("#baby-date");
+    const hEl = $("#baby-h");
+    const wEl = $("#baby-w");
+    const h = Number(hEl.value);
+    const w = Number(wEl.value);
+    if ((!h || isNaN(h)) && (!w || isNaN(w))) {
+      alert("请至少填写身高或体重");
+      return;
+    }
+    const dateStr = dEl.value || todayKey();
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const mk = `${y}-${pad(m)}`;
+    const b = ensureBaby();
+    if (!b[mk]) b[mk] = {};
+    b[mk][d] = { h: h || null, w: w || null };
+    save();
+    hEl.value = "";
+    wEl.value = "";
+    renderBaby();
+  }
+  function delBaby(d) {
+    const b = ensureBaby();
+    const month = monthKey();
+    if (b[month]) delete b[month][d];
+    save();
+    renderBaby();
+  }
+  function onBabyClick(e) {
+    const t = e.target.closest("[data-act]");
+    if (!t) return;
+    const act = t.dataset.act;
+    if (act === "add-baby") addBaby();
+    else if (act === "del-baby") delBaby(+t.dataset.d);
+  }
+
+  /* ============================================================
      视图切换 & 渲染调度
      ============================================================ */
-  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", monthly: "月度总结" };
+  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", baby: "宝宝", monthly: "月度总结" };
   function renderCurrentView() {
     const active = $(".nav-item.active").dataset.view;
     if (active === "weight") renderWeight();
     else if (active === "mood") renderMood();
     else if (active === "work") renderWork();
     else if (active === "cat") renderCat();
+    else if (active === "baby") renderBaby();
     else if (active === "monthly") renderMonthly();
   }
   function switchView(v) {
@@ -1975,6 +2108,7 @@
       menstrual: { lastStart: "", cycleLen: 28, periodLen: 5 },
       calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {},
       cat: { cats: { "泡泡": { litter: {}, weight: {} }, "喵喵": { litter: {}, weight: {} } }, active: "泡泡" },
+      baby: {},
     };
   }
   function dateStamp() {
@@ -2053,6 +2187,13 @@
             for (const d in sc.weight[mk]) if (cat.cats[name].weight[mk][d] == null) cat.cats[name].weight[mk][d] = sc.weight[mk][d];
           }
         }
+      }
+    }
+    if (src.baby) {
+      const b = ensureBaby();
+      for (const mk in src.baby) {
+        if (!b[mk]) b[mk] = {};
+        for (const d in src.baby[mk]) if (b[mk][d] == null) b[mk][d] = src.baby[mk][d];
       }
     }
     if (src.profile && (!state.profile || !state.profile.target)) state.profile = src.profile;
@@ -2173,6 +2314,10 @@
     if (catView) {
       catView.addEventListener("input", onCatInput);
       catView.addEventListener("click", onCatClick);
+    }
+    const babyView = $("#view-baby");
+    if (babyView) {
+      babyView.addEventListener("click", onBabyClick);
     }
 
     $("#btn-export").addEventListener("click", exportData);

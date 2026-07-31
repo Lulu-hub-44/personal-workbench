@@ -40,6 +40,9 @@
         <button class="nav-item" data-view="cat">
           <span class="nav-ic">🐱</span><span class="nav-label">猫咪</span>
         </button>
+        <button class="nav-item" data-view="baby">
+          <span class="nav-ic">👶</span><span class="nav-label">宝宝</span>
+        </button>
         <button class="nav-item" data-view="monthly">
           <span class="nav-ic">📓</span><span class="nav-label">月度总结</span>
         </button>
@@ -281,6 +284,29 @@
         </div>
       </section>
 
+      <!-- 宝宝 -->
+      <section class="view" id="view-baby">
+        <div class="card">
+          <div class="card-head">
+            <h2>👶 宝宝成长记录</h2>
+            <p class="muted">按日期记录孩子的身高(cm)与体重(kg)。趋势图展示全部历史记录；下方表格仅展示当前选择月份的记录。</p>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>日期</span><input type="date" id="baby-date" /></label>
+            <label class="field"><span>身高 (cm)</span><input type="number" step="0.1" id="baby-h" placeholder="如 65.5" /></label>
+            <label class="field"><span>体重 (kg)</span><input type="number" step="0.01" id="baby-w" placeholder="如 7.20" /></label>
+            <div class="field"><button class="primary-btn" id="baby-add" data-act="add-baby">记录</button></div>
+          </div>
+          <div class="table-wrap" style="margin-top:14px">
+            <table class="data-table" id="baby-table">
+              <thead><tr><th>日期</th><th>身高 (cm)</th><th>体重 (kg)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="chart-box" style="height:280px;margin-top:14px"><canvas id="baby-chart"></canvas></div>
+        </div>
+      </section>
+
       <!-- 月度总结 -->
       <section class="view" id="view-monthly">
         <div class="monthly-nav" id="monthly-nav"></div>
@@ -294,6 +320,6 @@
     <div class="modal" id="modal"></div>
   </div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
