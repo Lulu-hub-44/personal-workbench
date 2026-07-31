@@ -2139,6 +2139,12 @@
     $$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
     $("#month-input").addEventListener("change", renderCurrentView);
 
+    $("#btn-today").addEventListener("click", () => {
+      const now = new Date();
+      $("#month-input").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+      renderCurrentView();
+    });
+
     const catView = $("#view-cat");
     if (catView) {
       catView.addEventListener("input", onCatInput);
