@@ -1815,28 +1815,35 @@
         de.value = today.startsWith(mk + "-") ? today : mk + "-01";
       }
     }
-    drawCatWeightChart(month);
+    drawCatWeightChart();
   }
-  function drawCatWeightChart(month) {
+  function drawCatWeightChart() {
     const c = activeCat();
-    const wm = c.weight[month] || {};
-    const days = Object.keys(wm).map(Number).sort((a, b) => a - b);
+    const all = [];
+    for (const mk in c.weight) {
+      for (const d in c.weight[mk]) {
+        all.push({ date: `${mk}-${pad(d)}`, val: Number(c.weight[mk][d]) });
+      }
+    }
+    all.sort((a, b) => a.date.localeCompare(b.date));
     const ctx = $("#cat-weight-chart");
     if (!ctx || typeof Chart === "undefined") return;
     if (catWeightChart) catWeightChart.destroy();
+    const many = all.length > 20;
     catWeightChart = new Chart(ctx, {
       type: "line",
       data: {
-        labels: days.map((d) => month + "-" + pad(d)),
+        labels: all.map((x) => x.date),
         datasets: [
           {
             label: "猫咪体重(kg)",
-            data: days.map((d) => Number(wm[d])),
+            data: all.map((x) => x.val),
             borderColor: "#B6A6D6",
             backgroundColor: "rgba(182,166,214,.15)",
             tension: 0.3,
             spanGaps: true,
-            pointRadius: 4,
+            pointRadius: many ? 2 : 4,
+            borderWidth: many ? 2 : 2.5,
             fill: true,
           },
         ],
@@ -1844,8 +1851,8 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: { y: { beginAtZero: false } },
-        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: false }, x: { ticks: { maxTicksLimit: 12 } } },
+        plugins: { legend: { display: false }, tooltip: { intersect: false } },
       },
     });
   }
