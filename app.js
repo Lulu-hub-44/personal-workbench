@@ -1716,6 +1716,9 @@
           <button class="link-btn danger" data-act="del-session" data-sid="${s.id}">删除本次</button>
         </div>
       </div>
+      <div class="row-actions" style="margin:4px 0 12px">
+        <button class="ghost-btn sm" data-act="copy-box1" data-sid="${s.id}">📋 按盆1复制（应用到盆2/盆3）</button>
+      </div>
       <div class="litter-boxes">${boxesHtml}</div>
     </div>`;
   }
@@ -1914,12 +1917,22 @@
     else if (act === "set-now") setNow(sid, t.dataset.field);
     else if (act === "add-cw") addCatWeight();
     else if (act === "del-cw") delCatWeight(+t.dataset.d);
+    else if (act === "copy-box1") copyBox1(sid);
     else if (act === "switch-cat") {
       ensureCat();
       state.cat.active = t.dataset.cat;
       save();
       renderCat();
     }
+  }
+  function copyBox1(sid) {
+    const s = findSession(sid);
+    if (!s) return;
+    const src = s.boxes[0] || [];
+    s.boxes[1] = src.map((r) => ({ ...r }));
+    s.boxes[2] = src.map((r) => ({ ...r }));
+    save();
+    renderCat();
   }
 
   /* ============================================================
