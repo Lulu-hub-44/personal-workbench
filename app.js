@@ -1549,14 +1549,336 @@
   }
 
   /* ============================================================
+     5) 猫咪（猫砂用量 / 体重）
+     ============================================================ */
+  function ensureCat() {
+    if (!state.cat) state.cat = { litter: {}, weight: {} };
+    if (!state.cat.litter) state.cat.litter = {};
+    if (!state.cat.weight) state.cat.weight = {};
+    return state.cat;
+  }
+  function ensureCatMonth() {
+    const c = ensureCat();
+    const k = monthKey();
+    if (!c.litter[k]) c.litter[k] = [];
+    return c.litter[k];
+  }
+  function nowLocal() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  function fmt(v) {
+    const n = Number(v);
+    if (isNaN(n) || !isFinite(n)) return "0.00";
+    return n.toFixed(2);
+  }
+  function rowUnit(row) {
+    const m = Number(row.money), k = Number(row.kg);
+    if (!k || isNaN(k)) return 0;
+    return m / k;
+  }
+  function rowCost(row) {
+    return rowUnit(row) * Number(row.usage || 0);
+  }
+  function boxCost(rows) {
+    return rows.reduce((s, r) => s + rowCost(r), 0);
+  }
+  function sessionCost(s) {
+    return s.boxes.reduce((sum, rows) => sum + boxCost(rows), 0);
+  }
+  function findSession(sid) {
+    return ensureCatMonth().find((x) => x.id === sid);
+  }
+  function findRow(sid, bi, ri) {
+    const s = findSession(sid);
+    if (!s || !s.boxes[bi]) return null;
+    return s.boxes[bi][ri] || null;
+  }
+  function newRow() { return { name: "", money: "", kg: "", usage: "" }; }
+  function addSession() {
+    const s = {
+      id: "s" + Date.now() + Math.floor(Math.random() * 1000),
+      putTime: nowLocal(),
+      clearTime: "",
+      boxes: [[newRow()], [newRow()], [newRow()]],
+    };
+    ensureCatMonth().push(s);
+    save();
+    renderCat();
+  }
+  function delSession(sid) {
+    const arr = ensureCatMonth();
+    const i = arr.findIndex((x) => x.id === sid);
+    if (i >= 0) arr.splice(i, 1);
+    save();
+    renderCat();
+  }
+  function addRow(sid, bi) {
+    const s = findSession(sid);
+    if (!s) return;
+    s.boxes[bi].push(newRow());
+    save();
+    renderCat();
+  }
+  function delRow(sid, bi, ri) {
+    const s = findSession(sid);
+    if (!s) return;
+    if (s.boxes[bi].length <= 1) { alert("每个盆至少保留一行"); return; }
+    s.boxes[bi].splice(ri, 1);
+    save();
+    renderCat();
+  }
+  function setNow(sid, field) {
+    const s = findSession(sid);
+    if (!s) return;
+    s[field] = nowLocal();
+    save();
+    renderCat();
+  }
+  function escAttr(s) {
+    return String(s == null ? "" : s).replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  }
+
+  function renderSessionCard(s) {
+    const total = sessionCost(s);
+    const completed = s.clearTime ? "✅ 已清空" : "⏳ 投放中";
+    const boxesHtml = s.boxes
+      .map((rows, bi) => {
+        const sub = boxCost(rows);
+        const rowHtml = rows
+          .map(
+            (row, ri) => `
+          <tr>
+            <td><input class="cell-in" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="name" value="${escAttr(row.name)}" placeholder="猫砂名"/></td>
+            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="money" value="${escAttr(row.money)}" placeholder="钱"/></td>
+            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="kg" value="${escAttr(row.kg)}" placeholder="kg"/></td>
+            <td class="calc"><span id="unit-${s.id}-${bi}-${ri}">${fmt(rowUnit(row))}</span></td>
+            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="usage" value="${escAttr(row.usage)}" placeholder="本次用量"/></td>
+            <td class="calc"><span id="cost-${s.id}-${bi}-${ri}">${fmt(rowCost(row))}</span></td>
+            <td><button class="link-btn danger" data-act="del-row" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}">删</button></td>
+          </tr>`
+          )
+          .join("");
+        return `
+        <div class="litter-box">
+          <div class="litter-box-head"><strong>盆 ${bi + 1}</strong><span class="muted">小计 ¥<span id="bsum-${s.id}-${bi}">${fmt(sub)}</span></span></div>
+          <div class="table-wrap">
+            <table class="data-table litter-tbl">
+              <thead><tr><th>猫砂名称</th><th>钱</th><th>kg</th><th>单价(钱÷kg)</th><th>本次用量</th><th>本次费用(单价×用量)</th><th></th></tr></thead>
+              <tbody>${rowHtml || '<tr><td colspan="7" class="muted">空</td></tr>'}</tbody>
+            </table>
+          </div>
+          <button class="ghost-btn sm" data-act="add-row" data-sid="${s.id}" data-box="${bi}">＋ 加一行</button>
+        </div>`;
+      })
+      .join("");
+    return `
+    <div class="session-card">
+      <div class="session-head">
+        <div class="session-time">
+          <label>投入时间<input type="datetime-local" data-sid="${s.id}" data-sfield="putTime" value="${escAttr(s.putTime)}"/></label>
+          <label>清空时间<input type="datetime-local" data-sid="${s.id}" data-sfield="clearTime" value="${escAttr(s.clearTime)}"/></label>
+        </div>
+        <div class="session-sum">
+          <span class="badge ${s.clearTime ? "badge-ok" : "badge-wait"}">${completed}</span>
+          <div class="sum-big">本会话汇总 <b>¥<span id="sum-${s.id}">${fmt(total)}</span></b></div>
+        </div>
+        <div class="session-acts">
+          <button class="link-btn" data-act="set-now" data-sid="${s.id}" data-field="putTime">投入=现在</button>
+          <button class="link-btn" data-act="set-now" data-sid="${s.id}" data-field="clearTime">清空=现在</button>
+          <button class="link-btn danger" data-act="del-session" data-sid="${s.id}">删除本次</button>
+        </div>
+      </div>
+      <div class="litter-boxes">${boxesHtml}</div>
+    </div>`;
+  }
+
+  function renderCat() {
+    const c = ensureCat();
+    const sessions = ensureCatMonth();
+    const wrap = $("#cat-sessions");
+    if (!sessions.length) {
+      wrap.innerHTML = `<div class="muted" style="padding:10px 0">本月还没有记录，点击「＋ 新增一次（投入）」开始记录一次猫砂投放。</div>`;
+    } else {
+      wrap.innerHTML = sessions.map(renderSessionCard).join("");
+    }
+    let monthTotal = 0;
+    sessions.forEach((s) => (monthTotal += sessionCost(s)));
+    $("#cat-litter-stats").innerHTML = [
+      ["本月投放次数", sessions.length, "次"],
+      ["本月猫砂总费用", "¥" + fmt(monthTotal), ""],
+    ]
+      .map(
+        ([k, n, u]) =>
+          `<div class="stat"><div class="k">${k}</div><div class="n">${n}<span class="u">${u}</span></div></div>`
+      )
+      .join("");
+    renderCatWeight();
+  }
+
+  function recomputeSession(sid) {
+    const s = findSession(sid);
+    if (!s) return;
+    s.boxes.forEach((rows, bi) => {
+      rows.forEach((row, ri) => {
+        const u = $("#unit-" + sid + "-" + bi + "-" + ri);
+        const co = $("#cost-" + sid + "-" + bi + "-" + ri);
+        if (u) u.textContent = fmt(rowUnit(row));
+        if (co) co.textContent = fmt(rowCost(row));
+      });
+      const bs = $("#bsum-" + sid + "-" + bi);
+      if (bs) bs.textContent = fmt(boxCost(rows));
+    });
+    const sm = $("#sum-" + sid);
+    if (sm) sm.textContent = fmt(sessionCost(s));
+    renderCatMonthStat();
+  }
+  function renderCatMonthStat() {
+    const c = ensureCat();
+    const month = monthKey();
+    const sessions = c.litter[month] || [];
+    let monthTotal = 0;
+    sessions.forEach((s) => (monthTotal += sessionCost(s)));
+    const el = $("#cat-litter-stats");
+    if (el)
+      el.innerHTML = [
+        ["本月投放次数", sessions.length, "次"],
+        ["本月猫砂总费用", "¥" + fmt(monthTotal), ""],
+      ]
+        .map(
+          ([k, n, u]) =>
+            `<div class="stat"><div class="k">${k}</div><div class="n">${n}<span class="u">${u}</span></div></div>`
+        )
+        .join("");
+  }
+
+  /* 模块2：猫咪体重 */
+  let catWeightChart;
+  function renderCatWeight() {
+    const c = ensureCat();
+    const month = monthKey();
+    const wm = c.weight[month] || {};
+    const days = Object.keys(wm).map(Number).sort((a, b) => a - b);
+    const tb = $("#cat-weight-table tbody");
+    tb.innerHTML = days.length
+      ? days
+          .map(
+            (d) =>
+              `<tr><td>${month}-${pad(d)}</td><td>${Number(wm[d]).toFixed(2)} kg</td><td><button class="link-btn danger" data-act="del-cw" data-d="${d}">删</button></td></tr>`
+          )
+          .join("")
+      : `<tr class="empty-row"><td colspan="3">本月还没记录猫咪体重</td></tr>`;
+    const de = $("#cat-w-date");
+    if (de && !de.value) de.value = todayKey();
+    drawCatWeightChart(month);
+  }
+  function drawCatWeightChart(month) {
+    const c = ensureCat();
+    const wm = c.weight[month] || {};
+    const days = Object.keys(wm).map(Number).sort((a, b) => a - b);
+    const ctx = $("#cat-weight-chart");
+    if (!ctx || typeof Chart === "undefined") return;
+    if (catWeightChart) catWeightChart.destroy();
+    catWeightChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: days.map((d) => month + "-" + pad(d)),
+        datasets: [
+          {
+            label: "猫咪体重(kg)",
+            data: days.map((d) => Number(wm[d])),
+            borderColor: "#B6A6D6",
+            backgroundColor: "rgba(182,166,214,.15)",
+            tension: 0.3,
+            spanGaps: true,
+            pointRadius: 4,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: false } },
+        plugins: { legend: { display: false } },
+      },
+    });
+  }
+  function addCatWeight() {
+    const dEl = $("#cat-w-date");
+    const vEl = $("#cat-w-val");
+    const v = Number(vEl.value);
+    if (!v || isNaN(v)) {
+      alert("请输入体重（kg）");
+      return;
+    }
+    let d;
+    if (dEl.value) {
+      const parts = dEl.value.split("-");
+      d = Number(parts[2]);
+    } else {
+      d = new Date().getDate();
+    }
+    const c = ensureCat();
+    const month = monthKey();
+    if (!c.weight[month]) c.weight[month] = {};
+    c.weight[month][d] = v;
+    save();
+    vEl.value = "";
+    renderCat();
+  }
+  function delCatWeight(d) {
+    const c = ensureCat();
+    const month = monthKey();
+    if (c.weight[month]) delete c.weight[month][d];
+    save();
+    renderCat();
+  }
+
+  /* 猫咪视图事件（委托在 #view-cat 上，innerHTML 替换不丢失监听） */
+  function onCatInput(e) {
+    const t = e.target;
+    if (t.dataset.sfield) {
+      const s = findSession(t.dataset.sid);
+      if (s) {
+        s[t.dataset.sfield] = t.value;
+        save();
+      }
+    } else if (t.dataset.rfield) {
+      const row = findRow(t.dataset.sid, +t.dataset.box, +t.dataset.ri);
+      if (row) {
+        row[t.dataset.rfield] = t.value;
+        save();
+        recomputeSession(t.dataset.sid);
+      }
+    }
+  }
+  function onCatClick(e) {
+    const t = e.target.closest("[data-act]");
+    if (!t) return;
+    const act = t.dataset.act;
+    const sid = t.dataset.sid;
+    if (act === "add-session") addSession();
+    else if (act === "del-session") {
+      if (confirm("确定删除本次记录？该次三个盆的数据都会清除。")) delSession(sid);
+    } else if (act === "add-row") addRow(sid, +t.dataset.box);
+    else if (act === "del-row") delRow(sid, +t.dataset.box, +t.dataset.ri);
+    else if (act === "set-now") setNow(sid, t.dataset.field);
+    else if (act === "add-cw") addCatWeight();
+    else if (act === "del-cw") delCatWeight(+t.dataset.d);
+  }
+
+  /* ============================================================
      视图切换 & 渲染调度
      ============================================================ */
-  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", monthly: "月度总结" };
+  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", monthly: "月度总结" };
   function renderCurrentView() {
     const active = $(".nav-item.active").dataset.view;
     if (active === "weight") renderWeight();
     else if (active === "mood") renderMood();
     else if (active === "work") renderWork();
+    else if (active === "cat") renderCat();
     else if (active === "monthly") renderMonthly();
   }
   function switchView(v) {
@@ -1575,6 +1897,7 @@
       profile: { gender: "女", age: 28, height: 165, activity: 1.375, target: 52 },
       menstrual: { lastStart: "", cycleLen: 28, periodLen: 5 },
       calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {},
+      cat: { litter: {}, weight: {} },
     };
   }
   function dateStamp() {
@@ -1628,6 +1951,23 @@
         }
       }
     });
+    if (src.cat) {
+      const cat = ensureCat();
+      if (src.cat.litter) {
+        for (const mk in src.cat.litter) {
+          if (!cat.litter[mk]) cat.litter[mk] = [];
+          (src.cat.litter[mk] || []).forEach((s) => {
+            if (!cat.litter[mk].some((x) => x.id === s.id)) cat.litter[mk].push(s);
+          });
+        }
+      }
+      if (src.cat.weight) {
+        for (const mk in src.cat.weight) {
+          if (!cat.weight[mk]) cat.weight[mk] = {};
+          for (const d in src.cat.weight[mk]) if (cat.weight[mk][d] == null) cat.weight[mk][d] = src.cat.weight[mk][d];
+        }
+      }
+    }
     if (src.profile && (!state.profile || !state.profile.target)) state.profile = src.profile;
     if (src.menstrual && (!state.menstrual || !state.menstrual.lastStart)) state.menstrual = src.menstrual;
   }
@@ -1735,6 +2075,12 @@
 
     $$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
     $("#month-input").addEventListener("change", renderCurrentView);
+
+    const catView = $("#view-cat");
+    if (catView) {
+      catView.addEventListener("input", onCatInput);
+      catView.addEventListener("click", onCatClick);
+    }
 
     $("#btn-export").addEventListener("click", exportData);
     $("#btn-import").addEventListener("click", () => {

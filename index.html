@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -36,6 +36,9 @@
         </button>
         <button class="nav-item" data-view="work">
           <span class="nav-ic">💼</span><span class="nav-label">工作情况</span>
+        </button>
+        <button class="nav-item" data-view="cat">
+          <span class="nav-ic">🐱</span><span class="nav-label">猫咪</span>
         </button>
         <button class="nav-item" data-view="monthly">
           <span class="nav-ic">📓</span><span class="nav-label">月度总结</span>
@@ -236,6 +239,42 @@
         </div>
       </section>
 
+      <!-- 猫咪 -->
+      <section class="view" id="view-cat">
+        <!-- 模块1：猫砂用量（分三个盆） -->
+        <div class="card">
+          <div class="card-head">
+            <h2>🐱 猫砂用量（分三个盆）</h2>
+            <p class="muted">每次「投入 + 清空」算一次。单价 = 钱 ÷ kg，本次费用 = 单价 × 本次用量，汇总 = 本会话总费用。三个盆各自独立记录。</p>
+          </div>
+          <div class="row-actions" style="margin-bottom:14px">
+            <button class="primary-btn" data-act="add-session">＋ 新增一次（投入）</button>
+          </div>
+          <div id="cat-sessions"></div>
+          <div class="stat-grid" id="cat-litter-stats" style="margin-top:16px"></div>
+        </div>
+
+        <!-- 模块2：猫咪体重 -->
+        <div class="card">
+          <div class="card-head">
+            <h2>🐱 猫咪体重</h2>
+            <p class="muted">记录日期与体重（kg），便于观察变化趋势。</p>
+          </div>
+          <div class="form-grid">
+            <label class="field"><span>日期</span><input type="date" id="cat-w-date" /></label>
+            <label class="field"><span>体重 (kg)</span><input type="number" step="0.01" id="cat-w-val" placeholder="如 4.20" /></label>
+            <div class="field"><button class="primary-btn" id="cat-w-add" data-act="add-cw">记录体重</button></div>
+          </div>
+          <div class="table-wrap" style="margin-top:14px">
+            <table class="data-table" id="cat-weight-table">
+              <thead><tr><th>日期</th><th>体重 (kg)</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="chart-box" style="height:260px;margin-top:14px"><canvas id="cat-weight-chart"></canvas></div>
+        </div>
+      </section>
+
       <!-- 月度总结 -->
       <section class="view" id="view-monthly">
         <div class="monthly-nav" id="monthly-nav"></div>
@@ -249,6 +288,6 @@
     <div class="modal" id="modal"></div>
   </div>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

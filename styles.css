@@ -327,3 +327,43 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
   .modal-mask{place-items:end;padding:0;}
   .modal{width:100%;border-radius:20px 20px 0 0;padding:22px 18px calc(22px + env(safe-area-inset-bottom));}
 }
+
+/* ===== 猫咪模块 ===== */
+.session-card{
+  border:1px solid var(--line);border-radius:14px;background:var(--panel);
+  padding:14px;margin-bottom:16px;box-shadow:var(--shadow);
+}
+.session-head{
+  display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;
+  justify-content:space-between;margin-bottom:14px;
+}
+.session-time{display:flex;flex-wrap:wrap;gap:12px;}
+.session-time label{display:flex;flex-direction:column;font-size:12px;color:var(--ink-2);gap:4px;}
+.session-time input{width:190px;}
+.session-sum{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+.session-acts{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+.badge{font-size:12px;padding:3px 10px;border-radius:999px;font-weight:600;}
+.badge-ok{background:#C7D7C2;color:#3c5a3c;}
+.badge-wait{background:#E7DFD0;color:#8a7c5e;}
+.sum-big{font-size:15px;color:var(--ink);}
+.sum-big b{color:#9a7bbf;font-size:18px;}
+.litter-boxes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.litter-box{border:1px dashed var(--line);border-radius:12px;padding:10px;background:#fcfaf6;}
+.litter-box-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px;}
+.litter-tbl th,.litter-tbl td{padding:5px 6px;text-align:center;}
+.litter-tbl .calc{font-weight:600;color:#9a7bbf;background:#f6f1fb;}
+.cell-in{
+  width:100%;border:1px solid var(--line);border-radius:8px;padding:5px 6px;
+  font-size:12.5px;background:#fff;color:var(--ink);
+}
+.cell-in.num{text-align:right;}
+.cell-in:focus{outline:none;border-color:var(--accent);}
+.ghost-btn.sm{padding:5px 10px;font-size:12px;margin-top:8px;}
+.link-btn.danger{color:#c06a6a;}
+.link-btn.danger:hover{color:#a13b3b;}
+@media(max-width:760px){
+  .litter-boxes{grid-template-columns:1fr;}
+  .session-head{flex-direction:column;align-items:stretch;}
+  .session-acts{flex-direction:row;flex-wrap:wrap;}
+  .session-time input{width:100%;}
+}
