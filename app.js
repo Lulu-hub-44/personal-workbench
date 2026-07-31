@@ -1807,7 +1807,14 @@
           .join("")
       : `<tr class="empty-row"><td colspan="3">本月还没记录猫咪体重</td></tr>`;
     const de = $("#cat-w-date");
-    if (de && !de.value) de.value = todayKey();
+    if (de) {
+      const mk = monthKey();
+      const today = todayKey();
+      // 默认日期放在当前查看的月份里；若已有选择但跨了月份，也同步回当前月份，避免误录
+      if (!de.value || !de.value.startsWith(mk + "-")) {
+        de.value = today.startsWith(mk + "-") ? today : mk + "-01";
+      }
+    }
     drawCatWeightChart(month);
   }
   function drawCatWeightChart(month) {
@@ -1850,17 +1857,13 @@
       alert("请输入体重（kg）");
       return;
     }
-    let d;
-    if (dEl.value) {
-      const parts = dEl.value.split("-");
-      d = Number(parts[2]);
-    } else {
-      d = new Date().getDate();
-    }
+    // 以日期输入框的完整日期为准，而不是顶部月份选择器
+    const dateStr = dEl.value || todayKey();
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const mk = `${y}-${pad(m)}`;
     const c = activeCat();
-    const month = monthKey();
-    if (!c.weight[month]) c.weight[month] = {};
-    c.weight[month][d] = v;
+    if (!c.weight[mk]) c.weight[mk] = {};
+    c.weight[mk][d] = v;
     save();
     vEl.value = "";
     renderCat();
