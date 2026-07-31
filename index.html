@@ -241,11 +241,16 @@
 
       <!-- 猫咪 -->
       <section class="view" id="view-cat">
+        <div class="cat-switch" id="cat-switch">
+          <button class="cat-tab" data-act="switch-cat" data-cat="泡泡">🐱 泡泡</button>
+          <button class="cat-tab" data-act="switch-cat" data-cat="喵喵">🐱 喵喵</button>
+        </div>
+
         <!-- 模块1：猫砂用量（分三个盆） -->
         <div class="card">
           <div class="card-head">
-            <h2>🐱 猫砂用量（分三个盆）</h2>
-            <p class="muted">每次「投入 + 清空」算一次。单价 = 钱 ÷ kg，本次费用 = 单价 × 本次用量，汇总 = 本会话总费用。三个盆各自独立记录。</p>
+            <h2 id="cat-litter-title">🐱 猫砂用量（分三个盆）</h2>
+            <p class="muted">当前猫：<b id="cat-litter-who">泡泡</b>。每次「投入 + 清空」算一次。单价 = 钱 ÷ kg，本次费用 = 单价 × 本次用量，汇总 = 本会话总费用。三个盆各自独立记录。</p>
           </div>
           <div class="row-actions" style="margin-bottom:14px">
             <button class="primary-btn" data-act="add-session">＋ 新增一次（投入）</button>
@@ -257,8 +262,8 @@
         <!-- 模块2：猫咪体重 -->
         <div class="card">
           <div class="card-head">
-            <h2>🐱 猫咪体重</h2>
-            <p class="muted">记录日期与体重（kg），便于观察变化趋势。</p>
+            <h2 id="cat-weight-title">🐱 猫咪体重</h2>
+            <p class="muted">当前猫：<b id="cat-weight-who">泡泡</b>。记录日期与体重（kg），便于观察变化趋势。</p>
           </div>
           <div class="form-grid">
             <label class="field"><span>日期</span><input type="date" id="cat-w-date" /></label>
@@ -288,6 +293,6 @@
     <div class="modal" id="modal"></div>
   </div>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

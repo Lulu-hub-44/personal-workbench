@@ -1551,17 +1551,43 @@
   /* ============================================================
      5) 猫咪（猫砂用量 / 体重）
      ============================================================ */
+  const CAT_NAMES = ["泡泡", "喵喵"];
   function ensureCat() {
-    if (!state.cat) state.cat = { litter: {}, weight: {} };
-    if (!state.cat.litter) state.cat.litter = {};
-    if (!state.cat.weight) state.cat.weight = {};
+    if (!state.cat) state.cat = {};
+    // 旧格式迁移：state.cat = { litter:{}, weight:{} } → 归到“泡泡”
+    if (state.cat.litter || state.cat.weight) {
+      const oldL = state.cat.litter || {};
+      const oldW = state.cat.weight || {};
+      state.cat = { cats: { "泡泡": { litter: oldL, weight: oldW }, "喵喵": { litter: {}, weight: {} } }, active: "泡泡" };
+    }
+    if (!state.cat.cats) state.cat.cats = {};
+    CAT_NAMES.forEach((n) => {
+      if (!state.cat.cats[n]) state.cat.cats[n] = { litter: {}, weight: {} };
+      if (!state.cat.cats[n].litter) state.cat.cats[n].litter = {};
+      if (!state.cat.cats[n].weight) state.cat.cats[n].weight = {};
+    });
+    if (!state.cat.active || !state.cat.cats[state.cat.active]) state.cat.active = "泡泡";
     return state.cat;
   }
+  function activeCatName() {
+    ensureCat();
+    return state.cat.active || "泡泡";
+  }
+  function activeCat() {
+    const n = activeCatName();
+    return state.cat.cats[n];
+  }
   function ensureCatMonth() {
-    const c = ensureCat();
+    const c = activeCat();
     const k = monthKey();
     if (!c.litter[k]) c.litter[k] = [];
     return c.litter[k];
+  }
+  function ensureCatWeightMonth() {
+    const c = activeCat();
+    const k = monthKey();
+    if (!c.weight[k]) c.weight[k] = {};
+    return c.weight[k];
   }
   function nowLocal() {
     const d = new Date();
@@ -1696,6 +1722,17 @@
 
   function renderCat() {
     const c = ensureCat();
+    const who = activeCatName();
+    // 猫切换器高亮 + 标题/说明显示当前猫
+    $$("#cat-switch .cat-tab").forEach((b) =>
+      b.classList.toggle("active", b.dataset.cat === who)
+    );
+    const lt = $("#cat-litter-title"), lw = $("#cat-litter-who");
+    const wt = $("#cat-weight-title"), ww = $("#cat-weight-who");
+    if (lt) lt.textContent = `🐱 ${who} · 猫砂用量（分三个盆）`;
+    if (lw) lw.textContent = who;
+    if (wt) wt.textContent = `🐱 ${who} · 猫咪体重`;
+    if (ww) ww.textContent = who;
     const sessions = ensureCatMonth();
     const wrap = $("#cat-sessions");
     if (!sessions.length) {
@@ -1735,7 +1772,7 @@
     renderCatMonthStat();
   }
   function renderCatMonthStat() {
-    const c = ensureCat();
+    const c = activeCat();
     const month = monthKey();
     const sessions = c.litter[month] || [];
     let monthTotal = 0;
@@ -1756,7 +1793,7 @@
   /* 模块2：猫咪体重 */
   let catWeightChart;
   function renderCatWeight() {
-    const c = ensureCat();
+    const c = activeCat();
     const month = monthKey();
     const wm = c.weight[month] || {};
     const days = Object.keys(wm).map(Number).sort((a, b) => a - b);
@@ -1774,7 +1811,7 @@
     drawCatWeightChart(month);
   }
   function drawCatWeightChart(month) {
-    const c = ensureCat();
+    const c = activeCat();
     const wm = c.weight[month] || {};
     const days = Object.keys(wm).map(Number).sort((a, b) => a - b);
     const ctx = $("#cat-weight-chart");
@@ -1820,7 +1857,7 @@
     } else {
       d = new Date().getDate();
     }
-    const c = ensureCat();
+    const c = activeCat();
     const month = monthKey();
     if (!c.weight[month]) c.weight[month] = {};
     c.weight[month][d] = v;
@@ -1829,7 +1866,7 @@
     renderCat();
   }
   function delCatWeight(d) {
-    const c = ensureCat();
+    const c = activeCat();
     const month = monthKey();
     if (c.weight[month]) delete c.weight[month][d];
     save();
@@ -1867,6 +1904,12 @@
     else if (act === "set-now") setNow(sid, t.dataset.field);
     else if (act === "add-cw") addCatWeight();
     else if (act === "del-cw") delCatWeight(+t.dataset.d);
+    else if (act === "switch-cat") {
+      ensureCat();
+      state.cat.active = t.dataset.cat;
+      save();
+      renderCat();
+    }
   }
 
   /* ============================================================
@@ -1897,7 +1940,7 @@
       profile: { gender: "女", age: 28, height: 165, activity: 1.375, target: 52 },
       menstrual: { lastStart: "", cycleLen: 28, periodLen: 5 },
       calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {},
-      cat: { litter: {}, weight: {} },
+      cat: { cats: { "泡泡": { litter: {}, weight: {} }, "喵喵": { litter: {}, weight: {} } }, active: "泡泡" },
     };
   }
   function dateStamp() {
@@ -1953,18 +1996,28 @@
     });
     if (src.cat) {
       const cat = ensureCat();
-      if (src.cat.litter) {
-        for (const mk in src.cat.litter) {
-          if (!cat.litter[mk]) cat.litter[mk] = [];
-          (src.cat.litter[mk] || []).forEach((s) => {
-            if (!cat.litter[mk].some((x) => x.id === s.id)) cat.litter[mk].push(s);
-          });
+      // 旧格式（无 cats）归到“泡泡”
+      const srcCats =
+        src.cat.cats ||
+        (src.cat.litter || src.cat.weight
+          ? { "泡泡": { litter: src.cat.litter || {}, weight: src.cat.weight || {} } }
+          : {});
+      for (const name of Object.keys(srcCats)) {
+        if (!cat.cats[name]) cat.cats[name] = { litter: {}, weight: {} };
+        const sc = srcCats[name];
+        if (sc.litter) {
+          for (const mk in sc.litter) {
+            if (!cat.cats[name].litter[mk]) cat.cats[name].litter[mk] = [];
+            (sc.litter[mk] || []).forEach((s) => {
+              if (!cat.cats[name].litter[mk].some((x) => x.id === s.id)) cat.cats[name].litter[mk].push(s);
+            });
+          }
         }
-      }
-      if (src.cat.weight) {
-        for (const mk in src.cat.weight) {
-          if (!cat.weight[mk]) cat.weight[mk] = {};
-          for (const d in src.cat.weight[mk]) if (cat.weight[mk][d] == null) cat.weight[mk][d] = src.cat.weight[mk][d];
+        if (sc.weight) {
+          for (const mk in sc.weight) {
+            if (!cat.cats[name].weight[mk]) cat.cats[name].weight[mk] = {};
+            for (const d in sc.weight[mk]) if (cat.cats[name].weight[mk][d] == null) cat.cats[name].weight[mk][d] = sc.weight[mk][d];
+          }
         }
       }
     }
