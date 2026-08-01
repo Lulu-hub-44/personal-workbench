@@ -2722,14 +2722,10 @@
       pullSync(false).catch(() => {});
     }
 
-    // 注册 Service Worker（仅 http/https 环境，便于“安装到桌面/主屏”）
-    // sw.js 内部已在 install 阶段 self.skipWaiting()、activate 阶段 clients.claim()，
-    // 这里只负责注册，避免从页面调用 skipWaiting 报错。
-    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(() => {});
-      });
-    }
+    // 注意：vivo 等国产浏览器自带“云端加速/工作空间”，Service Worker 与云端代理
+    // 并存时容易在首次加载报错（历史记录可正常打开）。为保证移动端可稳定打开，
+    // 此处不再注册 SW，页面作为普通静态页加载即可。
+    // 如需“安装到主屏/离线”，可后续在桌面浏览器单独启用 sw.js。
   }
   document.addEventListener("DOMContentLoaded", init);
 })();

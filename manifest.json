@@ -4,7 +4,7 @@
   "description": "体重管理 · 心情 · 工作 · 月度总结 · 个人数据看板",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "browser",
   "orientation": "portrait",
   "background_color": "#F4F1EC",
   "theme_color": "#B6A6D6",
