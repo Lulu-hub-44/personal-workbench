@@ -43,6 +43,9 @@
         <button class="nav-item" data-view="baby">
           <span class="nav-ic">👶</span><span class="nav-label">宝宝</span>
         </button>
+        <button class="nav-item" data-view="ai">
+          <span class="nav-ic">🤖</span><span class="nav-label">AI 分析</span>
+        </button>
         <button class="nav-item" data-view="monthly">
           <span class="nav-ic">📓</span><span class="nav-label">月度总结</span>
         </button>
@@ -307,6 +310,39 @@
         </div>
       </section>
 
+      <!-- AI 分析 -->
+      <section class="view" id="view-ai">
+        <div class="card">
+          <div class="card-head">
+            <h2>🤖 智能分析（基于你填入的数据）</h2>
+            <p class="muted">用中文提问，助手会汇总当前月份 / 本年的数据作答。全部在本地计算，数据不外传。</p>
+          </div>
+          <div class="ai-chat" id="ai-chat"></div>
+          <div class="ai-chips" id="ai-chips">
+            <button class="chip" data-q="这个月我减了多少体重？">本月减重</button>
+            <button class="chip" data-q="猫砂这个月花了多少钱？">本月猫砂花费</button>
+            <button class="chip" data-q="最近工作忙不忙？">工作忙碌度</button>
+            <button class="chip" data-q="宝宝这半年长了多少？">宝宝成长</button>
+            <button class="chip" data-q="全年我总共减重多少？">全年减重</button>
+            <button class="chip" data-q="全年猫砂花了多少？">全年猫砂花费</button>
+            <button class="chip" data-q="我这个月热量趋势怎样？">本月热量</button>
+            <button class="chip" data-q="综合分析一下我的整体情况">整体分析</button>
+          </div>
+          <div class="row-actions" style="margin-top:12px">
+            <input class="modal-input" id="ai-input" placeholder="例如：这个月热量趋势怎样？猫和宝宝最近怎么样？" />
+            <button class="primary-btn" id="ai-send" data-act="ai-send">发送</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 id="ai-year-title">📅 年度汇总</h2>
+            <p class="muted">自动汇总所选年份（取顶部月份选择器的年份）的全部模块数据。</p>
+          </div>
+          <div id="ai-year" class="stat-grid"></div>
+        </div>
+      </section>
+
       <!-- 月度总结 -->
       <section class="view" id="view-monthly">
         <div class="monthly-nav" id="monthly-nav"></div>
@@ -320,6 +356,6 @@
     <div class="modal" id="modal"></div>
   </div>
 
-  <script src="app.js?v=7"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

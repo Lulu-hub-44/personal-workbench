@@ -2079,9 +2079,221 @@
   }
 
   /* ============================================================
+     7) AI 分析（本地数据汇总，无需联网/密钥）
+     ============================================================ */
+  function monthsOfYear(Y) {
+    const arr = [];
+    for (let m = 1; m <= 12; m++) arr.push(`${Y}-${pad(m)}`);
+    return arr;
+  }
+  // 体重（取最早/最晚记录）
+  function weightYear(Y) {
+    const all = {};
+    monthsOfYear(Y).forEach((mk) => {
+      const wt = state.weight[mk] || {};
+      Object.keys(wt).forEach((d) => { if (wt[d] != null) all[`${mk}-${pad(d)}`] = Number(wt[d]); });
+    });
+    const keys = Object.keys(all).sort();
+    if (!keys.length) return null;
+    const first = Number(all[keys[0]]);
+    const last = Number(all[keys[keys.length - 1]]);
+    return { first, last, loss: Number((first - last).toFixed(1)), n: keys.length };
+  }
+  function catLitterYear(Y, name) {
+    let total = 0;
+    monthsOfYear(Y).forEach((mk) => {
+      (state.cat.cats[name].litter[mk] || []).forEach((s) => (total += sessionCost(s)));
+    });
+    return total;
+  }
+  function workYear(Y) {
+    const vals = [];
+    monthsOfYear(Y).forEach((mk) => {
+      const w = state.work[mk] || { busy: {} };
+      Object.values(w.busy || {}).forEach((v) => { if (v != null) vals.push(Number(v)); });
+    });
+    if (!vals.length) return null;
+    return { avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length), high: vals.filter((v) => busyLevel(v) === "high").length, n: vals.length };
+  }
+  function moodYear(Y) {
+    const vals = [];
+    monthsOfYear(Y).forEach((mk) => {
+      const mo = state.mood[mk] || {};
+      Object.values(mo).forEach((v) => { if (v != null) vals.push(Number(v)); });
+    });
+    if (!vals.length) return null;
+    return { avg: (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2), happy: Math.round((vals.filter((v) => v >= 1).length / vals.length) * 100), n: vals.length };
+  }
+  function calorieYear(Y) {
+    const vals = [];
+    monthsOfYear(Y).forEach((mk) => {
+      const c = (state.calories[mk] || {}).days || {};
+      Object.values(c).forEach((v) => { if (v != null) vals.push(Number(v)); });
+    });
+    if (!vals.length) return null;
+    return { avg: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length), n: vals.length };
+  }
+  function babyYear(Y) {
+    const all = {};
+    monthsOfYear(Y).forEach((mk) => {
+      const b = state.baby[mk] || {};
+      Object.keys(b).forEach((d) => { if (b[d]) all[`${mk}-${pad(d)}`] = b[d]; });
+    });
+    const keys = Object.keys(all).sort();
+    if (!keys.length) return null;
+    const f = all[keys[0]], l = all[keys[keys.length - 1]];
+    return { firstH: f.h, lastH: l.h, firstW: f.w, lastW: l.w, n: keys.length };
+  }
+
+  function monthWeight(mk) {
+    const wt = state.weight[mk] || {};
+    const days = Object.keys(wt).map(Number).filter((d) => wt[d] != null).sort((a, b) => a - b);
+    if (!days.length) return null;
+    return { first: Number(wt[days[0]]), last: Number(wt[days[days.length - 1]]), n: days.length };
+  }
+
+  function analyzeWeight(isYear, Y) {
+    if (isYear) {
+      const w = weightYear(Y);
+      if (!w) return "🏃 体重：本年还没有体重记录。";
+      const k = w.loss > 0 ? "减重" : w.loss < 0 ? "增重" : "基本持平";
+      return `🏃 体重（${Y}全年）：${w.first.toFixed(1)}kg → ${w.last.toFixed(1)}kg，全年${k} ${Math.abs(w.loss).toFixed(1)}kg（${w.n} 天记录）。`;
+    }
+    const mk = monthKey();
+    const w = monthWeight(mk);
+    if (!w) return `🏃 体重：${mk} 还没有体重记录。`;
+    const loss = w.first - w.last;
+    const k = loss > 0 ? "减" : loss < 0 ? "增" : "持";
+    return `🏃 体重（${mk}）：${w.first.toFixed(1)} → ${w.last.toFixed(1)}kg，本月${k}${Math.abs(loss).toFixed(1)}kg（${w.n} 天记录）。`;
+  }
+  function analyzeCat(isYear, Y, q) {
+    const names = Object.keys(state.cat.cats);
+    const mentioned = names.filter((n) => q.indexOf(n) >= 0);
+    const targets = mentioned.length ? mentioned : names;
+    const lines = targets.map((name) => {
+      let total;
+      if (isYear) total = catLitterYear(Y, name);
+      else {
+        const mk = monthKey();
+        total = (state.cat.cats[name].litter[mk] || []).reduce((s, x) => s + sessionCost(x), 0);
+      }
+      return `· ${name}（${isYear ? Y + "全年" : monthKey()}）猫砂花费 ¥${fmt(total)}`;
+    });
+    return "🐱 猫砂：" + lines.join("；") + "。";
+  }
+  function analyzeWork(isYear, Y) {
+    const w = workYear(Y);
+    if (!w) return `💼 工作：${isYear ? Y + "全年" : monthKey()} 还没有忙碌度记录。`;
+    return `💼 工作（${isYear ? Y + "全年" : monthKey()}）：平均忙碌度 ${w.avg}/100，${w.high} 天处于“忙碌”区间（共 ${w.n} 天记录）。`;
+  }
+  function analyzeMood(isYear, Y) {
+    const m = moodYear(Y);
+    if (!m) return `🌤️ 心情：${isYear ? Y + "全年" : monthKey()} 还没有心情记录。`;
+    return `🌤️ 心情（${isYear ? Y + "全年" : monthKey()}）：平均心情 ${m.avg}，开心占比 ${m.happy}%（${m.n} 天记录）。`;
+  }
+  function analyzeCalorie(isYear, Y) {
+    const c = calorieYear(Y);
+    if (!c) return `🔥 热量：${isYear ? Y + "全年" : monthKey()} 还没有热量记录。`;
+    return `🔥 热量（${isYear ? Y + "全年" : monthKey()}）：平均每日 ${c.avg} 大卡（${c.n} 天记录）。`;
+  }
+  function analyzeBaby(isYear, Y) {
+    const b = babyYear(Y);
+    if (!b) return `👶 宝宝：${isYear ? Y + "全年" : monthKey()} 还没有身高体重记录。`;
+    const dh = b.firstH != null && b.lastH != null ? (b.lastH - b.firstH).toFixed(1) : "—";
+    const dw = b.firstW != null && b.lastW != null ? (b.lastW - b.firstW).toFixed(2) : "—";
+    return `👶 宝宝（${isYear ? Y + "全年" : monthKey()}）：身高 ${b.firstH != null ? b.firstH.toFixed(1) : "—"} → ${b.lastH != null ? b.lastH.toFixed(1) : "—"}cm（增长 ${dh}cm）；体重 ${b.firstW != null ? b.firstW.toFixed(2) : "—"} → ${b.lastW != null ? b.lastW.toFixed(2) : "—"}kg（增长 ${dw}kg），共 ${b.n} 次记录。`;
+  }
+  function monthOverview() {
+    const mk = monthKey();
+    const parts = [analyzeWeight(false, ym().y), analyzeCat(false, ym().y, ""), analyzeWork(false, ym().y), analyzeCalorie(false, ym().y), analyzeMood(false, ym().y), analyzeBaby(false, ym().y)];
+    return `📌 ${mk} 概览：\n` + parts.join("\n");
+  }
+  function analyzeQuestion(q) {
+    q = (q || "").toLowerCase();
+    const Y = ym().y;
+    const isYear = /全年|年度|今年|这一年|一年|整年/.test(q);
+    const parts = [];
+    if (/体重|减重|减肥|胖|瘦|斤|掉秤|减了|减掉|瘦了/.test(q)) parts.push(analyzeWeight(isYear, Y));
+    if (/猫砂|猫| litter/.test(q)) parts.push(analyzeCat(isYear, Y, q));
+    if (/工作|忙|加班|忙碌/.test(q)) parts.push(analyzeWork(isYear, Y));
+    if (/心情|情绪|开心|抑郁|压力|心情/.test(q)) parts.push(analyzeMood(isYear, Y));
+    if (/热量|卡路里|吃|饮食/.test(q)) parts.push(analyzeCalorie(isYear, Y));
+    if (/宝宝|身高|成长|婴儿/.test(q)) parts.push(analyzeBaby(isYear, Y));
+    if (!parts.length) return monthOverview();
+    return parts.join("\n");
+  }
+
+  let aiMessages = [];
+  function aiGreet() {
+    if (aiMessages.length) return;
+    aiMessages.push({ role: "bot", text: "你好！我是你的本地数据分析助手 🤖\n你可以问我这个月减了多少、猫砂花了多少、工作忙不忙、宝宝长了多少，或点下面的快捷问题。所有分析都基于你已填的数据，不会上传。" });
+  }
+  function renderAIChat() {
+    const box = $("#ai-chat");
+    if (!box) return;
+    box.innerHTML = aiMessages
+      .map((m) => `<div class="ai-msg ${m.role}">${escHtml(m.text)}</div>`)
+      .join("");
+    box.scrollTop = box.scrollHeight;
+  }
+  function escHtml(s) {
+    return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  }
+  function renderAIYear() {
+    const Y = ym().y;
+    $("#ai-year-title").textContent = `📅 年度汇总（${Y}年）`;
+    const w = weightYear(Y);
+    const bw = babyYear(Y);
+    const wk = workYear(Y);
+    const mo = moodYear(Y);
+    const ca = calorieYear(Y);
+    const catNames = Object.keys(state.cat.cats);
+    const catLines = catNames.map((n) => ["猫砂·" + n + "全年", "¥" + fmt(catLitterYear(Y, n)), ""]);
+    const stats = [
+      ["体重·年初→年末", w ? `${w.first.toFixed(1)}→${w.last.toFixed(1)}kg` : "—", w ? (w.loss > 0 ? "全年减重" + w.loss.toFixed(1) + "kg" : w.loss < 0 ? "全年增重" + Math.abs(w.loss).toFixed(1) + "kg" : "持平") : ""],
+      ["体重记录天数", w ? w.n : "—", "天"],
+      ["宝宝·身高增长", bw && bw.firstH != null && bw.lastH != null ? (bw.lastH - bw.firstH).toFixed(1) + "cm" : "—", ""],
+      ["宝宝·体重增长", bw && bw.firstW != null && bw.lastW != null ? (bw.lastW - bw.firstW).toFixed(2) + "kg" : "—", ""],
+      ["工作·平均忙碌度", wk ? wk.avg + "/100" : "—", wk ? wk.high + "天忙碌" : ""],
+      ["心情·平均", mo ? mo.avg : "—", mo ? "开心" + mo.happy + "%" : ""],
+      ["热量·日均", ca ? ca.avg + " 大卡" : "—", ca ? ca.n + "天" : ""],
+      ...catLines,
+    ];
+    $("#ai-year").innerHTML = stats
+      .map(([k, n, u]) => `<div class="stat"><div class="k">${k}</div><div class="n">${n}<span class="u">${u}</span></div></div>`)
+      .join("");
+  }
+  function renderAI() {
+    aiGreet();
+    renderAIChat();
+    renderAIYear();
+  }
+  function aiAsk(text) {
+    text = (text || "").trim();
+    if (!text) return;
+    aiMessages.push({ role: "user", text });
+    const ans = analyzeQuestion(text);
+    aiMessages.push({ role: "bot", text: ans });
+    renderAIChat();
+  }
+  function onAIClick(e) {
+    const chip = e.target.closest(".chip");
+    if (chip) {
+      aiAsk(chip.dataset.q);
+      return;
+    }
+    const t = e.target.closest("[data-act]");
+    if (t && t.dataset.act === "ai-send") {
+      const inp = $("#ai-input");
+      aiAsk(inp.value);
+      inp.value = "";
+    }
+  }
+
+  /* ============================================================
      视图切换 & 渲染调度
      ============================================================ */
-  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", baby: "宝宝", monthly: "月度总结" };
+  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", baby: "宝宝", ai: "AI 分析", monthly: "月度总结" };
   function renderCurrentView() {
     const active = $(".nav-item.active").dataset.view;
     if (active === "weight") renderWeight();
@@ -2089,6 +2301,7 @@
     else if (active === "work") renderWork();
     else if (active === "cat") renderCat();
     else if (active === "baby") renderBaby();
+    else if (active === "ai") renderAI();
     else if (active === "monthly") renderMonthly();
   }
   function switchView(v) {
@@ -2318,6 +2531,12 @@
     const babyView = $("#view-baby");
     if (babyView) {
       babyView.addEventListener("click", onBabyClick);
+    }
+    const aiView = $("#view-ai");
+    if (aiView) {
+      aiView.addEventListener("click", onAIClick);
+      const aiInp = $("#ai-input");
+      if (aiInp) aiInp.addEventListener("keydown", (e) => { if (e.key === "Enter") { aiAsk(aiInp.value); aiInp.value = ""; } });
     }
 
     $("#btn-export").addEventListener("click", exportData);

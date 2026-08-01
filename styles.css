@@ -377,3 +377,12 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
   .cat-switch{flex-direction:row;}
   .cat-tab{font-size:14px;padding:10px 8px;}
 }
+
+/* ===== AI 分析 ===== */
+.ai-chat{display:flex;flex-direction:column;gap:10px;max-height:320px;overflow-y:auto;padding:6px 2px;margin-bottom:12px;}
+.ai-msg{padding:9px 12px;border-radius:12px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;}
+.ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--lilac),var(--pink));color:#4a3d63;max-width:85%;}
+.ai-msg.bot{align-self:flex-start;background:var(--panel-2);border:1px solid var(--line);max-width:92%;}
+.ai-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;color:var(--ink-2);cursor:pointer;}
+.chip:hover{background:var(--panel-2);border-color:var(--accent);color:var(--ink);}
