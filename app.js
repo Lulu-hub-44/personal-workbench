@@ -2723,9 +2723,11 @@
     }
 
     // 注册 Service Worker（仅 http/https 环境，便于“安装到桌面/主屏”）
+    // sw.js 内部已在 install 阶段 self.skipWaiting()、activate 阶段 clients.claim()，
+    // 这里只负责注册，避免从页面调用 skipWaiting 报错。
     if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
       window.addEventListener("load", () => {
-        navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {});
+        navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(() => {});
       });
     }
   }

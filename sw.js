@@ -1,6 +1,6 @@
 /* 个人工作台 Service Worker —— 让应用可“安装到桌面/主屏”并支持离线 */
-const CACHE = "wb-v2";
-const ASSETS = ["/", "/index.html", "/manifest.json", "/icon-192.png", "/icon-512.png"];
+const CACHE = "wb-v3";
+const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -38,6 +38,6 @@ self.addEventListener("fetch", (e) => {
         caches.open(CACHE).then((c) => c.put(req, copy));
         return resp;
       })
-      .catch(() => caches.match(req).then((r) => r || caches.match("/index.html")))
+      .catch(() => caches.match(req).then((r) => r || caches.match("./index.html")))
   );
 });
