@@ -13,7 +13,8 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="icon" href="icon-192.png" />
   <link rel="stylesheet" href="styles.css?v=6" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- 本地自托管 chart.js：去掉外部 CDN 依赖，避免 vivo 等浏览器拦截 jsdelivr 导致图表不显示 -->
+  <script src="chart.umd.min.js?v=1"></script>
 </head>
 <body>
   <div class="app">
