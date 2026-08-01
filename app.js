@@ -1413,6 +1413,7 @@
     { id: "entertainment", t: "娱乐回顾", auto: false },
     { id: "review", t: "本月回顾", auto: false },
     { id: "thoughts", t: "本月思考", auto: false },
+    { id: "annual", t: "年度总结", auto: true },
   ];
 
   function renderMonthlyNav() {
@@ -1440,7 +1441,8 @@
     const wt = state.weight[monthKey()] || {};
     const ex = state.exercise[monthKey()] || {};
     const mood = state.mood[monthKey()] || {};
-    const work = state.work[monthKey()] || { busy: {}, ot: {}, summary: "" };
+    const workRaw = state.work[monthKey()] || {};
+    const work = Object.assign({ busy: {}, ot: { days: "", hours: "", satDays: "", satHours: "", mixed: "" }, summary: "" }, workRaw);
     const tdee = computeTDEE();
 
     const calVals = Object.values(cal.days).filter((x) => x != null).map(Number);
@@ -1527,6 +1529,7 @@
       entertainment: `<div class="field"><label>娱乐回顾</label><textarea id="en" placeholder="电影、游戏、聚会、旅行……">${m.entertainment || ""}</textarea></div>`,
       review: `<div class="field"><label>本月回顾</label><textarea id="rv" placeholder="最重要的事、遗憾、惊喜……">${m.review || ""}</textarea></div>`,
       thoughts: `<div class="field"><label>本月思考</label><textarea id="th" placeholder="对某事的新看法、想通的道理……">${m.thoughts || ""}</textarea></div>`,
+      annual: annualPanelHTML(),
     };
 
     $("#monthly-panels").innerHTML = MONTHLY_MODULES.map((mod, i) => {
@@ -1557,6 +1560,80 @@
     set("en", (v) => (m.entertainment = v));
     set("rv", (v) => (m.review = v));
     set("th", (v) => (m.thoughts = v));
+  }
+  // 年度总结：根据各月「月度总结」填写的数据 + 原始数据，自动汇总当年
+  function annualPanelHTML() {
+    const Y = Number(monthKey().split("-")[0]);
+    const months = monthsOfYear(Y);
+    let incSum = 0, expSum = 0, bookSum = 0, exDaysSum = 0;
+    const rows = months.map((mk) => {
+      const mm = state.monthly[mk] || {};
+      const fin = mm.finance || {};
+      const inc = Number(fin.income) || 0;
+      const exp = Number(fin.expense) || 0;
+      const cnt = Number((mm.reading && mm.reading.count) || 0);
+      const exd = Number((mm.exercise && mm.exercise.days) || 0);
+      incSum += inc; expSum += exp; bookSum += cnt; exDaysSum += exd;
+      const wt = state.weight[mk] || {};
+      const wDays = Object.keys(wt).map(Number).filter((d) => wt[d] != null).sort((a, b) => a - b);
+      const wFirst = wDays.length ? Number(wt[wDays[0]]) : null;
+      const wLast = wDays.length ? Number(wt[wDays[wDays.length - 1]]) : null;
+      return { mk, mm, inc, exp, cnt, exd, wFirst, wLast };
+    });
+    const wYear = weightYear(Y);
+    const wk = workYear(Y);
+    const mo = moodYear(Y);
+    const ca = calorieYear(Y);
+    const stat = (k, n, u) =>
+      `<div class="mp-stat"><div class="k">${k}</div><div class="n">${n}${u ? `<span class="u">${u}</span>` : ""}</div></div>`;
+    const grid = [
+      stat("全年收入", incSum || expSum ? "¥" + fmt(incSum) : "—"),
+      stat("全年支出", incSum || expSum ? "¥" + fmt(expSum) : "—"),
+      stat("全年盈余", incSum || expSum ? "¥" + fmt(incSum - expSum) : "—"),
+      stat("读完书目", bookSum ? bookSum : "—", "本"),
+      stat("运动总天数", exDaysSum ? exDaysSum : "—", "天"),
+      stat("体重 年头→年尾", wYear ? `${wYear.first.toFixed(1)}→${wYear.last.toFixed(1)}kg` : "—"),
+      stat("全年减重", wYear ? (wYear.loss > 0 ? "−" : wYear.loss < 0 ? "+" : "") + Math.abs(wYear.loss).toFixed(1) + "kg" : "—"),
+      stat("平均忙碌度", wk ? wk.avg + "/100" : "—"),
+      stat("平均心情", mo ? mo.avg : "—"),
+      stat("热量日均", ca ? ca.avg + " 大卡" : "—"),
+    ].join("");
+
+    const cards = rows
+      .map((r) => {
+        const items = [];
+        if (r.mm.review) items.push(["本月回顾", r.mm.review]);
+        if (r.mm.thoughts) items.push(["本月思考", r.mm.thoughts]);
+        if (r.mm.woNote) items.push(["工作小结", r.mm.woNote]);
+        if (r.mm.body) items.push(["身体情况", r.mm.body]);
+        if (r.mm.entertainment) items.push(["娱乐回顾", r.mm.entertainment]);
+        if (r.mm.wNote) items.push(["减肥小结", r.mm.wNote]);
+        if (r.mm.mNote) items.push(["心理小结", r.mm.mNote]);
+        const nums = [];
+        if (r.inc) nums.push("收 ¥" + fmt(r.inc));
+        if (r.exp) nums.push("支 ¥" + fmt(r.exp));
+        if (r.cnt) nums.push("书 " + r.cnt + " 本");
+        if (r.exd) nums.push("动 " + r.exd + " 天");
+        if (r.wFirst != null) nums.push("体重 " + r.wFirst.toFixed(1) + "→" + r.wLast.toFixed(1) + "kg");
+        if (!items.length && !nums.length) return "";
+        const numLine = nums.length ? `<div class="am-nums">${nums.map((n) => `<span>${n}</span>`).join("")}</div>` : "";
+        const itemLine = items.map(([k, v]) => `<div class="am-item"><b>${k}：</b>${escHtml(v)}</div>`).join("");
+        return `<div class="am-card"><div class="am-month">${r.mk}</div>${numLine}${itemLine}</div>`;
+      })
+      .join("");
+
+    const hasAny = rows.some(
+      (r) =>
+        r.inc || r.exp || r.cnt || r.exd || r.wFirst != null ||
+        r.mm.review || r.mm.thoughts || r.mm.woNote || r.mm.body || r.mm.entertainment || r.mm.wNote || r.mm.mNote
+    );
+    return `
+      <div class="mp-grid">${grid}</div>
+      <div class="field" style="margin-top:16px"><label>📥 月度记录自动带入（每月填写的回顾 / 思考 / 小结）</label>
+        <div class="annual-list">${
+          hasAny ? cards : '<div class="muted" style="padding:8px 0">还没有任何月份填写可供年度汇总的数据，去前面各月标签页补上吧。</div>'
+        }</div>
+      </div>`;
   }
 
   /* ============================================================

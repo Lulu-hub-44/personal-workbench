@@ -244,6 +244,16 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
 .mp-stat .n{font-size:19px;font-weight:700;}
 .mp-full textarea{min-height:160px;}
 
+/* 年度总结：月度记录自动带入 */
+.annual-list{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+.am-card{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+.am-month{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:6px;}
+.am-nums{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;}
+.am-nums span{font-size:12px;background:#efeaf6;color:var(--ink);border-radius:999px;padding:2px 9px;}
+.am-item{font-size:13px;line-height:1.55;color:var(--ink);margin-top:3px;}
+.am-item b{color:var(--ink-2);font-weight:600;}
+
+
 /* ===== 弹层 ===== */
 .modal-mask{
   position:fixed;inset:0;background:rgba(70,64,55,.4);
