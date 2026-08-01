@@ -489,7 +489,27 @@
       m.finance.basic = m.finance.expense;
     if (m.finance && m.finance.note != null && m.finance.note !== "" && (m.finance.otherNote == null || m.finance.otherNote === ""))
       m.finance.otherNote = m.finance.note;
+    // 删除废弃字段，避免与基础/其他支出冲突导致年度汇总对不上
+    if (m.finance) { delete m.finance.income; delete m.finance.expense; delete m.finance.note; }
     return m;
+  }
+  // 启动时统一规范化所有月份的财务数据（迁移旧结构 + 删除废弃字段），保证年度汇总与月度一致
+  function normalizeMonthlyAll() {
+    if (!state.monthly || typeof state.monthly !== "object") return;
+    let changed = false;
+    for (const mk in state.monthly) {
+      const m = state.monthly[mk];
+      if (!m || typeof m !== "object") continue;
+      const fin = m.finance;
+      if (fin && typeof fin === "object") {
+        if (fin.expense != null && fin.expense !== "" && (fin.basic == null || fin.basic === "")) { fin.basic = fin.expense; changed = true; }
+        if (fin.note != null && fin.note !== "" && (fin.otherNote == null || fin.otherNote === "")) { fin.otherNote = fin.note; changed = true; }
+        if ("income" in fin) { delete fin.income; changed = true; }
+        if ("expense" in fin) { delete fin.expense; changed = true; }
+        if ("note" in fin) { delete fin.note; changed = true; }
+      }
+    }
+    if (changed) save();
   }
 
   /* ---------- 弹层 ---------- */
@@ -1602,7 +1622,7 @@
     const rows = months.map((mk) => {
       const mm = state.monthly[mk] || {};
       const fin = mm.finance || {};
-      const basic = Number(fin.basic != null && fin.basic !== "" ? fin.basic : fin.expense) || 0;
+      const basic = Number(fin.basic || 0);
       const other = Number(fin.other || 0);
       const exp = basic + other;
       basicSum += basic; otherSum += other; expSum += exp; bookSum += Number((mm.reading && mm.reading.count) || 0); exDaysSum += Number((mm.exercise && mm.exercise.days) || 0);
@@ -2623,6 +2643,7 @@
     const now = new Date();
     $("#month-input").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
 
+    normalizeMonthlyAll(); // 启动时统一迁移/清理各月财务数据，保证年度汇总与月度一致
     $$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
     $("#month-input").addEventListener("change", renderCurrentView);
 
