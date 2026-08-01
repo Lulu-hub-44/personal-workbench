@@ -471,20 +471,25 @@
   }
   function ensureMonthly() {
     const k = monthKey();
-    if (!state.monthly[k])
-      state.monthly[k] = {
-        finance: { income: "", expense: "", note: "" },
-        reading: { books: "", count: "", note: "" },
-        exercise: { days: "", detail: "" },
-        body: "",
-        entertainment: "",
-        review: "",
-        thoughts: "",
-        wNote: "",
-        mNote: "",
-        woNote: "",
-      };
-    return state.monthly[k];
+    const def = {
+      finance: { basic: "", other: "", otherNote: "" },
+      reading: { books: "", count: "", note: "" },
+      exercise: { days: "", detail: "" },
+      body: "", entertainment: "", review: "", thoughts: "", wNote: "", mNote: "", woNote: "",
+    };
+    if (!state.monthly[k]) state.monthly[k] = JSON.parse(JSON.stringify(def));
+    const m = state.monthly[k];
+    // 兼容旧/稀疏数据：补齐缺失的顶层字段与子对象
+    for (const f in def) if (m[f] == null) m[f] = typeof def[f] === "object" ? JSON.parse(JSON.stringify(def[f])) : def[f];
+    if (typeof m.finance === "object") for (const f in def.finance) if (m.finance[f] == null) m.finance[f] = def.finance[f];
+    if (typeof m.reading === "object") for (const f in def.reading) if (m.reading[f] == null) m.reading[f] = def.reading[f];
+    if (typeof m.exercise === "object") for (const f in def.exercise) if (m.exercise[f] == null) m.exercise[f] = def.exercise[f];
+    // 旧数据迁移：income/expense/note → basic/other/otherNote
+    if (m.finance && m.finance.expense != null && m.finance.expense !== "" && (m.finance.basic == null || m.finance.basic === ""))
+      m.finance.basic = m.finance.expense;
+    if (m.finance && m.finance.note != null && m.finance.note !== "" && (m.finance.otherNote == null || m.finance.otherNote === ""))
+      m.finance.otherNote = m.finance.note;
+    return m;
   }
 
   /* ---------- 弹层 ---------- */
@@ -1504,10 +1509,10 @@
     const panels = {
       finance: `
         <div class="mp-grid">
-          <div class="field"><label>本月收入</label><input id="f-income" value="${m.finance.income || ""}" placeholder="元" /></div>
-          <div class="field"><label>本月支出</label><input id="f-expense" value="${m.finance.expense || ""}" placeholder="元" /></div>
+          <div class="field"><label>基础支出</label><input id="f-basic" value="${m.finance.basic || ""}" placeholder="房租、水电、固定开销……" /></div>
+          <div class="field"><label>其他支出</label><input id="f-other" value="${m.finance.other || ""}" placeholder="旅行、人情、购物……" /></div>
         </div>
-        <div class="field" style="margin-top:14px"><label>财务备注 / 大额开销</label><textarea id="f-note" placeholder="房租、旅行、人情……">${m.finance.note || ""}</textarea></div>`,
+        <div class="field" style="margin-top:14px"><label>其他支出备注</label><textarea id="f-other-note" placeholder="大额开销说明、旅行、人情……">${m.finance.otherNote || ""}</textarea></div>`,
       reading: `
         <div class="mp-grid">
           <div class="field"><label>读完本数</label><input id="r-count" value="${m.reading.count || ""}" placeholder="本" /></div>
@@ -1573,9 +1578,9 @@
       const el = $("#" + id);
       if (el) el.addEventListener("input", () => { fn(el.value); save(); });
     };
-    set("f-income", (v) => (m.finance.income = v));
-    set("f-expense", (v) => (m.finance.expense = v));
-    set("f-note", (v) => (m.finance.note = v));
+    set("f-basic", (v) => (m.finance.basic = v));
+    set("f-other", (v) => (m.finance.other = v));
+    set("f-other-note", (v) => (m.finance.otherNote = v));
     set("r-count", (v) => (m.reading.count = v));
     set("r-books", (v) => (m.reading.books = v));
     set("r-note", (v) => (m.reading.note = v));
@@ -1593,20 +1598,19 @@
   function annualPanelHTML() {
     const Y = Number(monthKey().split("-")[0]);
     const months = monthsOfYear(Y);
-    let incSum = 0, expSum = 0, bookSum = 0, exDaysSum = 0;
+    let basicSum = 0, otherSum = 0, expSum = 0, bookSum = 0, exDaysSum = 0;
     const rows = months.map((mk) => {
       const mm = state.monthly[mk] || {};
       const fin = mm.finance || {};
-      const inc = Number(fin.income) || 0;
-      const exp = Number(fin.expense) || 0;
-      const cnt = Number((mm.reading && mm.reading.count) || 0);
-      const exd = Number((mm.exercise && mm.exercise.days) || 0);
-      incSum += inc; expSum += exp; bookSum += cnt; exDaysSum += exd;
+      const basic = Number(fin.basic != null && fin.basic !== "" ? fin.basic : fin.expense) || 0;
+      const other = Number(fin.other || 0);
+      const exp = basic + other;
+      basicSum += basic; otherSum += other; expSum += exp; bookSum += Number((mm.reading && mm.reading.count) || 0); exDaysSum += Number((mm.exercise && mm.exercise.days) || 0);
       const wt = state.weight[mk] || {};
       const wDays = Object.keys(wt).map(Number).filter((d) => wt[d] != null).sort((a, b) => a - b);
       const wFirst = wDays.length ? Number(wt[wDays[0]]) : null;
       const wLast = wDays.length ? Number(wt[wDays[wDays.length - 1]]) : null;
-      return { mk, mm, inc, exp, cnt, exd, wFirst, wLast };
+      return { mk, mm, basic, other, exp, cnt: Number((mm.reading && mm.reading.count) || 0), exd: Number((mm.exercise && mm.exercise.days) || 0), wFirst, wLast };
     });
     const wYear = weightYear(Y);
     const wk = workYear(Y);
@@ -1615,9 +1619,9 @@
     const stat = (k, n, u) =>
       `<div class="mp-stat"><div class="k">${k}</div><div class="n">${n}${u ? `<span class="u">${u}</span>` : ""}</div></div>`;
     const grid = [
-      stat("全年收入", incSum || expSum ? "¥" + fmt(incSum) : "—"),
-      stat("全年支出", incSum || expSum ? "¥" + fmt(expSum) : "—"),
-      stat("全年盈余", incSum || expSum ? "¥" + fmt(incSum - expSum) : "—"),
+      stat("全年支出", expSum ? "¥" + fmt(expSum) : "—"),
+      stat("基础支出", basicSum ? "¥" + fmt(basicSum) : "—"),
+      stat("其他支出", otherSum ? "¥" + fmt(otherSum) : "—"),
       stat("读完书目", bookSum ? bookSum : "—", "本"),
       stat("运动总天数", exDaysSum ? exDaysSum : "—", "天"),
       stat("体重 年头→年尾", wYear ? `${wYear.first.toFixed(1)}→${wYear.last.toFixed(1)}kg` : "—"),
@@ -1638,8 +1642,8 @@
         if (r.mm.wNote) items.push(["减肥小结", r.mm.wNote]);
         if (r.mm.mNote) items.push(["心理小结", r.mm.mNote]);
         const nums = [];
-        if (r.inc) nums.push("收 ¥" + fmt(r.inc));
-        if (r.exp) nums.push("支 ¥" + fmt(r.exp));
+        if (r.basic) nums.push("基础 ¥" + fmt(r.basic));
+        if (r.other) nums.push("其他 ¥" + fmt(r.other));
         if (r.cnt) nums.push("书 " + r.cnt + " 本");
         if (r.exd) nums.push("动 " + r.exd + " 天");
         if (r.wFirst != null) nums.push("体重 " + r.wFirst.toFixed(1) + "→" + r.wLast.toFixed(1) + "kg");
@@ -1652,7 +1656,7 @@
 
     const hasAny = rows.some(
       (r) =>
-        r.inc || r.exp || r.cnt || r.exd || r.wFirst != null ||
+        r.basic || r.other || r.cnt || r.exd || r.wFirst != null ||
         r.mm.review || r.mm.thoughts || r.mm.woNote || r.mm.body || r.mm.entertainment || r.mm.wNote || r.mm.mNote
     );
     return `
