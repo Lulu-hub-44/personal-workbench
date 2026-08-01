@@ -689,9 +689,9 @@
       ? rows.join("")
       : `<tr class="empty-row"><td colspan="4">本月暂无体重记录</td></tr>`;
 
-    // 图表：连续 3 个月窗口（当前月 + 前两个月），预测延伸到窗口末尾
+    // 图表：连续 2 个月窗口（当前月 + 前一个月），预测延伸到窗口末尾
     const windowMonths = [];
-    for (let k = 2; k >= 0; k--) {
+    for (let k = 1; k >= 0; k--) {
       let yy = y, mm = m - k;
       while (mm <= 0) { mm += 12; yy -= 1; }
       windowMonths.push({ y: yy, m: mm, days: new Date(yy, mm, 0).getDate() });
@@ -748,7 +748,7 @@
     const wm0 = windowMonths[0], wm2 = windowMonths[windowMonths.length - 1];
     const rangeEl = $("#weight-range");
     if (rangeEl)
-      rangeEl.textContent = `展示区间：${wm0.y}-${pad(wm0.m)} ~ ${wm2.y}-${pad(wm2.m)}（连续 3 个月，预测延伸至 ${wm2.y}-${pad(wm2.m)} 月末）`;
+      rangeEl.textContent = `展示区间：${wm0.y}-${pad(wm0.m)} ~ ${wm2.y}-${pad(wm2.m)}（连续 2 个月，预测延伸至 ${wm2.y}-${pad(wm2.m)} 月末）`;
 
     if (weightChart) weightChart.destroy();
     if (typeof Chart === "undefined") return;
