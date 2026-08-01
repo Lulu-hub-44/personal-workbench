@@ -668,10 +668,8 @@
   let weightChart;
   function renderWeightTableAndChart(cal, wt, ex, total, tdee) {
     const { y, m } = ym();
-    const pts = [];
-    for (let d = 1; d <= total; d++) if (wt[d] != null) pts.push([d, Number(wt[d])]);
 
-    // 表格
+    // 表格（仍按当前月）
     const tb = $("#weight-table tbody");
     const rows = [];
     for (let d = 1; d <= total; d++) {
@@ -691,15 +689,39 @@
       ? rows.join("")
       : `<tr class="empty-row"><td colspan="4">本月暂无体重记录</td></tr>`;
 
-    // 预测：线性回归
-    const actual = new Array(total).fill(null);
-    const adjusted = new Array(total).fill(null);
-    const predicted = new Array(total).fill(null);
-    pts.forEach(([d, w]) => {
-      actual[d - 1] = w;
-      const ph = phaseForDay(y, m, d);
-      adjusted[d - 1] = +(w - ph.retention).toFixed(2);
+    // 图表：连续 3 个月窗口（当前月 + 前两个月），预测延伸到窗口末尾
+    const windowMonths = [];
+    for (let k = 2; k >= 0; k--) {
+      let yy = y, mm = m - k;
+      while (mm <= 0) { mm += 12; yy -= 1; }
+      windowMonths.push({ y: yy, m: mm, days: new Date(yy, mm, 0).getDate() });
+    }
+    let off = 0;
+    windowMonths.forEach((wm) => { wm.offset = off; off += wm.days; });
+    const totalDays = off;
+    const gmY = new Array(totalDays), gmM = new Array(totalDays), gmD = new Array(totalDays);
+    windowMonths.forEach((wm) => {
+      for (let d = 1; d <= wm.days; d++) {
+        const g = wm.offset + (d - 1);
+        gmY[g] = wm.y; gmM[g] = wm.m; gmD[g] = d;
+      }
     });
+
+    const pts = [];
+    windowMonths.forEach((wm) => {
+      const wmWt = state.weight[`${wm.y}-${pad(wm.m)}`] || {};
+      for (let d = 1; d <= wm.days; d++)
+        if (wmWt[d] != null) pts.push([wm.offset + (d - 1), Number(wmWt[d])]);
+    });
+
+    const actual = new Array(totalDays).fill(null);
+    const adjusted = new Array(totalDays).fill(null);
+    const predicted = new Array(totalDays).fill(null);
+    pts.forEach(([g, w]) => {
+      actual[g] = w;
+      adjusted[g] = +(w - phaseForDay(gmY[g], gmM[g], gmD[g]).retention).toFixed(2);
+    });
+
     if (pts.length >= 2) {
       const n = pts.length;
       const sx = pts.reduce((a, p) => a + p[0], 0);
@@ -708,22 +730,25 @@
       const sxy = pts.reduce((a, p) => a + p[0] * p[1], 0);
       const b = (n * sxy - sx * sy) / (n * sxx - sx * sx);
       const a = (sy - b * sx) / n;
-      const lastDay = pts[pts.length - 1][0];
-      predicted[lastDay - 1] = pts[pts.length - 1][1];
-      for (let d = lastDay + 1; d <= total; d++) {
-        const ph = phaseForDay(y, m, d);
-        predicted[d - 1] = +(a + b * d + ph.retention).toFixed(2);
-      }
+      const lastG = pts[pts.length - 1][0];
+      predicted[lastG] = pts[pts.length - 1][1];
+      for (let g = lastG + 1; g < totalDays; g++)
+        predicted[g] = +(a + b * g + phaseForDay(gmY[g], gmM[g], gmD[g]).retention).toFixed(2);
     }
 
-    const pointColors = new Array(total).fill("#B6A6D6");
-    for (let d = 1; d <= total; d++) {
-      const ph = phaseForDay(y, m, d);
-      if (ph.phase) pointColors[d - 1] = PHASE[ph.phase].color;
+    const pointColors = new Array(totalDays).fill("#B6A6D6");
+    for (let g = 0; g < totalDays; g++) {
+      const ph = phaseForDay(gmY[g], gmM[g], gmD[g]);
+      if (ph.phase) pointColors[g] = PHASE[ph.phase].color;
     }
 
     const labels = [];
-    for (let d = 1; d <= total; d++) labels.push(d);
+    for (let g = 0; g < totalDays; g++) labels.push(`${gmM[g]}/${gmD[g]}`);
+
+    const wm0 = windowMonths[0], wm2 = windowMonths[windowMonths.length - 1];
+    const rangeEl = $("#weight-range");
+    if (rangeEl)
+      rangeEl.textContent = `展示区间：${wm0.y}-${pad(wm0.m)} ~ ${wm2.y}-${pad(wm2.m)}（连续 3 个月，预测延伸至 ${wm2.y}-${pad(wm2.m)} 月末）`;
 
     if (weightChart) weightChart.destroy();
     if (typeof Chart === "undefined") return;
@@ -768,7 +793,10 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        scales: { y: { title: { display: true, text: "kg" } } },
+        scales: {
+          y: { title: { display: true, text: "kg" } },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 12, maxRotation: 0, font: { size: 10 } } },
+        },
         plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } } },
       },
     });
