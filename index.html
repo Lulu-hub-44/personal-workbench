@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="工作台" />
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="icon" href="icon-192.png" />
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
   <!-- 本地自托管 chart.js：去掉外部 CDN 依赖，避免 vivo 等浏览器拦截 jsdelivr 导致图表不显示 -->
   <script src="chart.umd.min.js?v=1"></script>
 </head>
@@ -37,6 +37,9 @@
         </button>
         <button class="nav-item" data-view="work">
           <span class="nav-ic">💼</span><span class="nav-label">工作情况</span>
+        </button>
+        <button class="nav-item" data-view="hunger">
+          <span class="nav-ic">🍽️</span><span class="nav-label">饥饿记录</span>
         </button>
         <button class="nav-item" data-view="cat">
           <span class="nav-ic">🐱</span><span class="nav-label">猫咪</span>
@@ -117,6 +120,16 @@
         <div class="card">
           <div class="card-head"><h2>热量与差值统计</h2></div>
           <div class="stat-grid" id="weight-stats"></div>
+        </div>
+
+        <!-- 尿量统计（储水参考） -->
+        <div class="card">
+          <div class="card-head">
+            <h2>尿量统计（储水参考）</h2>
+            <p class="muted">尿量偏低≈身体在储水，偏高≈在排水；用于修正体重预测与经期储水分析。</p>
+          </div>
+          <div class="stat-grid" id="urine-stats"></div>
+          <div class="chart-box" style="height:160px;margin-top:14px"><canvas id="urine-chart"></canvas></div>
         </div>
 
         <!-- 热量失控预警 -->
@@ -248,6 +261,36 @@
         </div>
       </section>
 
+      <!-- 饥饿记录 -->
+      <section class="view" id="view-hunger">
+        <div class="card">
+          <div class="card-head">
+            <h2>每日饥饿记录</h2>
+            <p class="muted">点击日期格子记录当天：前一顿吃饭时间 / 内容、此刻感受、是否进食、忍饿后的感受。</p>
+          </div>
+          <div class="legend" id="hunger-legend"></div>
+          <div class="heatmap-wrap">
+            <div class="weekdays">
+              <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+            </div>
+            <div class="heatmap" id="hunger-heatmap"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>饥饿统计</h2></div>
+          <div class="stat-grid" id="hunger-stats"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>超热量 / 低热量分析</h2>
+            <p class="muted">联动每日热量，看「忍饿」是否真压低了摄入、进食日是否更容易超标。</p>
+          </div>
+          <div id="hunger-analysis"></div>
+        </div>
+      </section>
+
       <!-- 猫咪 -->
       <section class="view" id="view-cat">
         <div class="cat-switch" id="cat-switch">
@@ -358,6 +401,6 @@
     <div class="modal" id="modal"></div>
   </div>
 
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

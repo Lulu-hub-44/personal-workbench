@@ -375,6 +375,14 @@
     ovulation: { label: "排卵期(微储水)", color: "#C9C2E0", retention: 0.6 },
     luteal: { label: "黄体期(经前储水)", color: "#E6B583", retention: 1.2 },
   };
+  /* ---------- 尿量 → 储水修正 ---------- */
+  // 正常每日尿量约 1500ml；尿量每低于基线 3000ml ≈ 身体多储水 1kg（反之亦然）
+  const URINE_BASELINE = 1500;
+  const URINE_SCALE = 3000;
+  function urineAdj(ml) {
+    if (ml == null || ml === "" || isNaN(Number(ml))) return 0;
+    return (URINE_BASELINE - Number(ml)) / URINE_SCALE; // 正=偏储水，负=偏排水
+  }
   function phaseForDay(y, m, d) {
     const mn = state.menstrual;
     if (!mn || !mn.lastStart) return { phase: null, cycleDay: null, retention: 0, label: "未设置" };
@@ -469,10 +477,22 @@
       };
     return state.work[k];
   }
+  function ensureUrine() {
+    const k = monthKey();
+    if (!state.urine[k]) state.urine[k] = {};
+    return state.urine[k];
+  }
+  // 饥饿记录：按月按天存一条 { mealTime, content, feeling, ate(true/false), afterFeeling }
+  function ensureHunger() {
+    const k = monthKey();
+    if (!state.hunger[k]) state.hunger[k] = { days: {} };
+    if (!state.hunger[k].days) state.hunger[k].days = {};
+    return state.hunger[k];
+  }
   function ensureMonthly() {
     const k = monthKey();
     const def = {
-      finance: { basic: "", other: "", otherNote: "" },
+      finance: { basic: "", other: "", otherNote: "", unexpected: "", unexpectedNote: "" },
       reading: { books: "", count: "", note: "" },
       exercise: { days: "", detail: "" },
       body: "", entertainment: "", review: "", thoughts: "", wNote: "", mNote: "", woNote: "",
@@ -679,6 +699,7 @@
 
     /* —— 体重表 + 图表 + 分析 —— */
     renderWeightTableAndChart(cal, wt, ex, total, tdee);
+    renderUrine();
     renderWeightAnalysis(wt, total, tdee);
   }
 
@@ -739,12 +760,28 @@
         if (wmWt[d] != null) pts.push([wm.offset + (d - 1), Number(wmWt[d])]);
     });
 
+    // 尿量（ml）按窗口天对齐，用于储水修正
+    const urnArr = new Array(totalDays).fill(null);
+    let urnSumAdj = 0, urnN = 0;
+    windowMonths.forEach((wm) => {
+      const wmUrn = state.urine[`${wm.y}-${pad(wm.m)}`] || {};
+      for (let d = 1; d <= wm.days; d++)
+        if (wmUrn[d] != null) {
+          const g = wm.offset + (d - 1);
+          urnArr[g] = Number(wmUrn[d]);
+          urnSumAdj += urineAdj(wmUrn[d]);
+          urnN++;
+        }
+    });
+    const avgUrineAdj = urnN ? urnSumAdj / urnN : 0; // 历史平均储水修正，用于预测
+
     const actual = new Array(totalDays).fill(null);
     const adjusted = new Array(totalDays).fill(null);
     const predicted = new Array(totalDays).fill(null);
     pts.forEach(([g, w]) => {
       actual[g] = w;
-      adjusted[g] = +(w - phaseForDay(gmY[g], gmM[g], gmD[g]).retention).toFixed(2);
+      // 去水(真实减脂) = 体重 − 经期/排卵期储水 − 尿量偏储水
+      adjusted[g] = +(w - phaseForDay(gmY[g], gmM[g], gmD[g]).retention - urineAdj(urnArr[g])).toFixed(2);
     });
 
     if (pts.length >= 2) {
@@ -758,7 +795,8 @@
       const lastG = pts[pts.length - 1][0];
       predicted[lastG] = pts[pts.length - 1][1];
       for (let g = lastG + 1; g < totalDays; g++)
-        predicted[g] = +(a + b * g + phaseForDay(gmY[g], gmM[g], gmD[g]).retention).toFixed(2);
+        // 预测(含储水)：趋势 + 经期/排卵期储水 + 历史平均尿量储水修正
+        predicted[g] = +(a + b * g + phaseForDay(gmY[g], gmM[g], gmD[g]).retention + avgUrineAdj).toFixed(2);
     }
 
     const pointColors = new Array(totalDays).fill("#B6A6D6");
@@ -813,6 +851,16 @@
             pointRadius: 0,
             spanGaps: true,
           },
+          {
+            label: "尿量(ml)",
+            data: urnArr.map((v) => (v == null ? null : v)),
+            type: "bar",
+            yAxisID: "y1",
+            backgroundColor: "rgba(127,168,176,.30)",
+            borderWidth: 0,
+            order: 5,
+            spanGaps: true,
+          },
         ],
       },
       options: {
@@ -820,9 +868,76 @@
         maintainAspectRatio: false,
         scales: {
           y: { title: { display: true, text: "kg" } },
+          y1: {
+            position: "right",
+            title: { display: true, text: "尿量 ml" },
+            grid: { drawOnChartArea: false },
+            beginAtZero: true,
+          },
           x: { ticks: { autoSkip: true, maxTicksLimit: 12, maxRotation: 0, font: { size: 10 } } },
         },
         plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } } },
+      },
+    });
+  }
+
+  /* —— 尿量统计卡 + 尿量趋势图 —— */
+  let urineChart;
+  function renderUrine() {
+    const { y, m } = ym();
+    const urn = state.urine[monthKey()] || {};
+    const vals = Object.keys(urn).map(Number).filter((d) => urn[d] != null).map(Number);
+    const box = $("#urine-stats");
+    if (!box) return;
+    if (!vals.length) {
+      box.innerHTML = `<div class="stat"><div class="k">尿量记录</div><div class="n">暂无</div></div>
+        <div class="stat"><div class="k">累计尿量</div><div class="n">—</div></div>
+        <div class="stat"><div class="k">日均尿量</div><div class="n">—</div></div>
+        <div class="stat"><div class="k">末次尿量</div><div class="n">—</div></div>`;
+    } else {
+      const sum = vals.reduce((a, b) => a + b, 0);
+      const last = vals[vals.length - 1];
+      const avg = Math.round(sum / vals.length);
+      const retainTxt = avg < URINE_BASELINE ? "偏储水" : avg > URINE_BASELINE ? "偏排水" : "平衡";
+      box.innerHTML = `
+        <div class="stat"><div class="k">尿量记录</div><div class="n">${vals.length}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">累计尿量</div><div class="n">${sum.toLocaleString()}<span class="u">ml</span></div></div>
+        <div class="stat"><div class="k">日均尿量</div><div class="n">${avg}<span class="u">ml</span></div></div>
+        <div class="stat"><div class="k">末次尿量</div><div class="n">${last}<span class="u">ml</span></div></div>
+        <div class="stat"><div class="k">储水倾向</div><div class="n">${retainTxt}</div></div>`;
+    }
+    // 当月尿量柱状图
+    const total = daysInMonth();
+    const labels = [], data = [];
+    for (let d = 1; d <= total; d++) { labels.push(d); data.push(urn[d] != null ? Number(urn[d]) : null); }
+    if (urineChart) urineChart.destroy();
+    if (typeof Chart === "undefined") return;
+    const cv = $("#urine-chart");
+    if (!cv) return;
+    urineChart = new Chart(cv, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "尿量(ml)",
+            data,
+            backgroundColor: data.map((v) =>
+              v == null ? "rgba(0,0,0,0)" : v < URINE_BASELINE ? "rgba(155,127,176,.55)" : "rgba(127,168,176,.55)"
+            ),
+            borderRadius: 3,
+            spanGaps: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: "ml" } },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 15, maxRotation: 0, font: { size: 9 } } },
+        },
+        plugins: { legend: { display: false } },
       },
     });
   }
@@ -950,6 +1065,22 @@
     } else {
       note = `<p class="muted">设置月经周期后，这里会结合排卵期与经期储水给出更精准的体重解读与预测。</p>`;
     }
+    // 尿量储水分析（与经期相位互补，独立可用）
+    const urn = state.urine[monthKey()] || {};
+    const urnVals = Object.keys(urn).map(Number).filter((d) => urn[d] != null).map(Number);
+    if (urnVals.length) {
+      const urnAvg = Math.round(urnVals.reduce((a, b) => a + b, 0) / urnVals.length);
+      const lowDays = urnVals.filter((v) => v < URINE_BASELINE).length;
+      const adj = urineAdj(urnAvg);
+      const direction = adj > 0.05 ? "偏储水" : adj < -0.05 ? "偏排水" : "基本平衡";
+      let uNote = `<p class="muted" style="line-height:1.8;margin-top:8px">
+        💧 <b>尿量储水分析：</b>本月平均尿量 <strong>${urnAvg}ml</strong>（正常约 ${URINE_BASELINE}ml），整体${direction}（约 ${adj > 0 ? "+" : ""}${adj.toFixed(2)}kg 水分）；其中 ${lowDays}/${urnVals.length} 天尿量偏低，当日称重组读数可能虚高。`;
+      uNote += state.menstrual.lastStart
+        ? ` 结合经期相位：若经前/经期尿量也偏低，说明"激素储水+少尿"叠加，体重虚涨更明显，经期后尿量回升即会回落。`
+        : ` 设置月经周期后，可进一步区分"激素储水"与"少尿储水"。`;
+      uNote += ` 趋势图的<strong>去水线</strong>已按每日尿量修正，比单纯看体重更贴近真实脂肪变化。</p>`;
+      note += uNote;
+    }
     }
     box.innerHTML = html + note + buildReasonAnalysis(cal, mood, work);
   }
@@ -1055,19 +1186,23 @@
     const cal = ensureCal();
     const wt = ensureWeight();
     const ex = ensureExercise();
+    const urn = ensureUrine();
     const curC = cal.days[day] != null ? cal.days[day] : "";
     const curW = wt[day] != null ? wt[day] : "";
     const curE = ex[day] != null ? ex[day] : "";
+    const curU = urn[day] != null ? urn[day] : "";
     const note = cal.notes[day] || "";
     modal.innerHTML = `
       <h3>${monthKey()}-${pad(day)} · 记录</h3>
-      <p class="muted">热量来自薄荷健康；体重/运动消耗用于差值与预测</p>
+      <p class="muted">热量来自薄荷健康；体重/运动消耗用于差值与预测；尿量用于储水分析</p>
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">热量（大卡）</label>
       <input class="modal-input" id="m-cal" type="number" min="0" step="10" value="${curC}" placeholder="例如 1520" />
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">体重（kg）</label>
       <input class="modal-input" id="m-wt" type="number" min="0" step="0.1" value="${curW}" placeholder="例如 55.2" />
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">运动消耗（大卡）</label>
       <input class="modal-input" id="m-ex" type="number" min="0" step="10" value="${curE}" placeholder="例如 200" />
+      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">尿量（ml）</label>
+      <input class="modal-input" id="m-urn" type="number" min="0" step="50" value="${curU}" placeholder="例如 1500（正常约 1200~2000）" />
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">备注 / 诱因（超标或低热量原因）</label>
       <textarea id="m-note" placeholder="超标原因：聚餐 / 情绪性进食……  或  低热量原因：忙碌漏餐 / 身体不适……">${note}</textarea>
       <div class="modal-actions">
@@ -1079,12 +1214,15 @@
     $("#m-save").onclick = () => {
       const c = $("#m-cal").value,
         w = $("#m-wt").value,
-        e = $("#m-ex").value;
+        e = $("#m-ex").value,
+        u = $("#m-urn").value;
       cal.days[day] = c === "" ? undefined : Number(c);
       wt[day] = w === "" ? undefined : Number(w);
       ex[day] = e === "" ? undefined : Number(e);
+      urn[day] = u === "" ? undefined : Number(u);
       cal.notes[day] = $("#m-note").value.trim();
       if (cal.days[day] == null) delete cal.notes[day];
+      if (urn[day] == null) delete urn[day];
       save();
       closeModal();
       renderWeight();
@@ -1093,6 +1231,7 @@
       delete cal.days[day];
       delete wt[day];
       delete ex[day];
+      delete urn[day];
       delete cal.notes[day];
       save();
       closeModal();
@@ -1308,6 +1447,174 @@
   }
 
   /* ============================================================
+     饥饿记录：每日饥饿 / 进食日志 + 超低热分析
+     ============================================================ */
+  function renderHunger() {
+    const h = ensureHunger();
+    const cal = state.calories[monthKey()] || { days: {} };
+    const total = daysInMonth();
+
+    // 日历格子
+    const hm = $("#hunger-heatmap");
+    let html = "";
+    const off = firstOffset();
+    for (let i = 0; i < off; i++) html += `<div></div>`;
+    for (let d = 1; d <= total; d++) {
+      const rec = h.days[d];
+      const cls = rec ? (rec.ate === false ? "h-ate-no" : "h-ate-yes") : "";
+      const label = rec ? (rec.ate === false ? "没吃" : "吃了") : "";
+      html += `<div class="hcell ${cls}" data-day="${d}"><span class="d">${d}</span>${
+        rec ? `<span class="sub">${label}</span>` : ""
+      }</div>`;
+    }
+    hm.innerHTML = html;
+    $$(".hcell", hm).forEach((cell) => {
+      if (cell.dataset.day) cell.addEventListener("click", () => openHungerModal(Number(cell.dataset.day)));
+    });
+
+    // 图例
+    const lg = $("#hunger-legend");
+    if (lg)
+      lg.innerHTML = [
+        ["吃了", "var(--c-blue)"],
+        ["没吃", "var(--c-orange)"],
+        ["未记录", "rgba(0,0,0,.06)"],
+      ]
+        .map(([t, c]) => `<span class="lg"><span class="dot" style="background:${c}"></span>${t}</span>`)
+        .join("");
+
+    // 统计
+    const recDays = Object.keys(h.days).map(Number).filter((d) => h.days[d]).sort((a, b) => a - b);
+    const ateN = recDays.filter((d) => h.days[d].ate !== false).length;
+    const noN = recDays.length - ateN;
+    const sb = $("#hunger-stats");
+    if (sb)
+      sb.innerHTML = [
+        ["录入天数", recDays.length],
+        ["吃了", ateN + " 天"],
+        ["没吃", noN + " 天"],
+        ["没吃占比", recDays.length ? Math.round((noN / recDays.length) * 100) + "%" : "—"],
+      ]
+        .map(([k, n]) => `<div class="stat"><div class="k">${k}</div><div class="n">${n}</div></div>`)
+        .join("");
+
+    renderHungerAnalysis(h, cal, total);
+  }
+
+  // 超热量 / 低热量分析：联动每日热量，看忍饿与进食的影响
+  function renderHungerAnalysis(h, cal, total) {
+    const box = $("#hunger-analysis");
+    if (!box) return;
+    const rows = [];
+    for (let d = 1; d <= total; d++) {
+      const rec = h.days[d];
+      if (!rec) continue;
+      const c = cal.days[d] != null ? Number(cal.days[d]) : null;
+      rows.push({ d, rec, c });
+    }
+    if (!rows.length) {
+      box.innerHTML = `<p class="muted">记录饥饿后，这里会结合当天热量，分析「忍饿」与「进食」对超标 / 低热量摄入的影响。</p>`;
+      return;
+    }
+    const pill = (c) =>
+      c == null
+        ? "（无热量）"
+        : c > 1800
+        ? `<span class="pill" style="background:var(--c-red);color:#fff">${c}</span> 超标`
+        : c < 1200
+        ? `<span class="pill" style="background:var(--c-green);color:#fff">${c}</span> 低热量`
+        : `<span class="pill" style="background:var(--c-blue);color:#fff">${c}</span>`;
+    const ateRows = rows.filter((r) => r.rec.ate !== false);
+    const noRows = rows.filter((r) => r.rec.ate === false);
+    let html = `<div class="reason-block"><div class="reason-sub"><b>进食日（${ateRows.length} 天）</b></div><ul class="reason-list">`;
+    ateRows.forEach(({ d, rec, c }) => {
+      html += `<li>${monthKey()}-${pad(d)} 吃了：${escHtml(rec.feeling || "—")} ${pill(c)}</li>`;
+    });
+    html += `</ul><div class="reason-sub"><b>没吃日（${noRows.length} 天）</b></div><ul class="reason-list">`;
+    noRows.forEach(({ d, rec, c }) => {
+      html += `<li>${monthKey()}-${pad(d)} 没吃：${escHtml(rec.afterFeeling || rec.feeling || "—")} ${pill(c)}</li>`;
+    });
+    html += `</ul>`;
+
+    let ateOver = 0, ateLow = 0, noOver = 0, noLow = 0;
+    rows.forEach(({ rec, c }) => {
+      if (c == null) return;
+      if (rec.ate !== false) {
+        if (c > 1800) ateOver++;
+        else if (c < 1200) ateLow++;
+      } else {
+        if (c > 1800) noOver++;
+        else if (c < 1200) noLow++;
+      }
+    });
+    const tips = [];
+    if (noLow > 0 && noOver === 0)
+      tips.push(`忍饿 ${noLow} 天成功压到低热量，说明这些天确实靠忍饿控制了摄入；但长期硬扛易反弹，建议用"规律少食"替代。`);
+    if (noOver > 0)
+      tips.push(`${noOver} 天"没吃"却仍超标——当天之前已吃超，单靠后续忍饿挽回不了，重点应放在"别先吃超"。`);
+    if (ateOver > 0) tips.push(`${ateOver} 天进食后仍超标，留意进食内容（聚餐 / 外卖 / 宵夜）与情绪性进食。`);
+    if (ateLow > 0) tips.push(`${ateLow} 天进食却保持低热量，属于"吃了但克制"，是较理想的状态。`);
+    if (tips.length) html += `<p class="reason-tip">💡 ${tips.join(" ")}</p>`;
+    html += `</div>`;
+    box.innerHTML = html;
+  }
+
+  function openHungerModal(day) {
+    const h = ensureHunger();
+    const rec = h.days[day] || { mealTime: "", content: "", feeling: "", ate: true, afterFeeling: "" };
+    modal.innerHTML = `
+      <h3>${monthKey()}-${pad(day)} · 饥饿记录</h3>
+      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">前一顿吃饭时间</label>
+      <input class="modal-input" id="h-mealTime" type="time" value="${rec.mealTime || ""}" />
+      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">前一顿吃的内容</label>
+      <input class="modal-input" id="h-content" value="${escHtml(rec.content || "")}" placeholder="例如 午餐 糙米饭+鸡胸+蔬菜" />
+      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">此时感觉</label>
+      <input class="modal-input" id="h-feeling" value="${escHtml(rec.feeling || "")}" placeholder="饿、嘴馋、无聊、焦虑……" />
+      <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">吃或者没吃？</label>
+      <div style="display:flex;gap:18px;margin:4px 0 6px">
+        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="1" ${rec.ate !== false ? "checked" : ""}/> 吃了</label>
+        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="0" ${rec.ate === false ? "checked" : ""}/> 没吃</label>
+      </div>
+      <div id="h-after-wrap" style="${rec.ate === false ? "" : "display:none"}">
+        <label class="muted" style="display:block;margin:8px 0 4px;font-weight:600">没吃之后的感受</label>
+        <textarea id="h-after" placeholder="忍饿后是否更焦虑 / 更饿 / 反而轻松……">${escHtml(rec.afterFeeling || "")}</textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="link-btn" id="h-del">清除</button>
+        <button class="primary-btn" id="h-save">保存</button>
+      </div>`;
+    mask.hidden = false;
+    $$('input[name="h-ate"]').forEach((r) =>
+      r.addEventListener("change", () => {
+        const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
+        $("#h-after-wrap").style.display = ate ? "none" : "";
+      })
+    );
+    $("#h-mealTime").focus();
+    $("#h-save").onclick = () => {
+      const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
+      const data = {
+        mealTime: $("#h-mealTime").value,
+        content: $("#h-content").value.trim(),
+        feeling: $("#h-feeling").value.trim(),
+        ate,
+        afterFeeling: ate ? "" : $("#h-after").value.trim(),
+      };
+      if (!data.mealTime && !data.content && !data.feeling && !data.afterFeeling) delete h.days[day];
+      else h.days[day] = data;
+      save();
+      closeModal();
+      renderHunger();
+    };
+    $("#h-del").onclick = () => {
+      delete h.days[day];
+      save();
+      closeModal();
+      renderHunger();
+    };
+  }
+
+  /* ============================================================
      3) 工作情况（不变）
      ============================================================ */
   function renderWork() {
@@ -1482,6 +1789,8 @@
     });
   }
   function showMonthlyPanel(id) {
+    // 年度总结依赖其它面板（财务等）的数据，切换过来时重新聚合，避免看到旧值
+    if (id === "annual") renderMonthly();
     $$(".mp").forEach((p) => p.classList.remove("active"));
     const panel = $("#mp-" + id);
     if (panel) panel.classList.add("active");
@@ -1531,8 +1840,10 @@
         <div class="mp-grid">
           <div class="field"><label>基础支出</label><input id="f-basic" value="${m.finance.basic || ""}" placeholder="房租、水电、固定开销……" /></div>
           <div class="field"><label>其他支出</label><input id="f-other" value="${m.finance.other || ""}" placeholder="旅行、人情、购物……" /></div>
+          <div class="field"><label>意外支出</label><input id="f-unexpected" value="${m.finance.unexpected || ""}" placeholder="医疗、维修、突发……" /></div>
         </div>
-        <div class="field" style="margin-top:14px"><label>其他支出备注</label><textarea id="f-other-note" placeholder="大额开销说明、旅行、人情……">${m.finance.otherNote || ""}</textarea></div>`,
+        <div class="field" style="margin-top:14px"><label>其他支出备注</label><textarea id="f-other-note" placeholder="大额开销说明、旅行、人情……">${m.finance.otherNote || ""}</textarea></div>
+        <div class="field" style="margin-top:14px"><label>意外支出备注</label><textarea id="f-unexpected-note" placeholder="意外开销说明（用于年度汇总备注栏）">${m.finance.unexpectedNote || ""}</textarea></div>`,
       reading: `
         <div class="mp-grid">
           <div class="field"><label>读完本数</label><input id="r-count" value="${m.reading.count || ""}" placeholder="本" /></div>
@@ -1601,6 +1912,8 @@
     set("f-basic", (v) => (m.finance.basic = v));
     set("f-other", (v) => (m.finance.other = v));
     set("f-other-note", (v) => (m.finance.otherNote = v));
+    set("f-unexpected", (v) => (m.finance.unexpected = v));
+    set("f-unexpected-note", (v) => (m.finance.unexpectedNote = v));
     set("r-count", (v) => (m.reading.count = v));
     set("r-books", (v) => (m.reading.books = v));
     set("r-note", (v) => (m.reading.note = v));
@@ -1618,19 +1931,20 @@
   function annualPanelHTML() {
     const Y = Number(monthKey().split("-")[0]);
     const months = monthsOfYear(Y);
-    let basicSum = 0, otherSum = 0, expSum = 0, bookSum = 0, exDaysSum = 0;
+    let basicSum = 0, otherSum = 0, unexpectedSum = 0, expSum = 0, bookSum = 0, exDaysSum = 0;
     const rows = months.map((mk) => {
       const mm = state.monthly[mk] || {};
       const fin = mm.finance || {};
       const basic = Number(fin.basic || 0);
       const other = Number(fin.other || 0);
-      const exp = basic + other;
-      basicSum += basic; otherSum += other; expSum += exp; bookSum += Number((mm.reading && mm.reading.count) || 0); exDaysSum += Number((mm.exercise && mm.exercise.days) || 0);
+      const unexpected = Number(fin.unexpected || 0);
+      const exp = basic + other + unexpected;
+      basicSum += basic; otherSum += other; unexpectedSum += unexpected; expSum += exp; bookSum += Number((mm.reading && mm.reading.count) || 0); exDaysSum += Number((mm.exercise && mm.exercise.days) || 0);
       const wt = state.weight[mk] || {};
       const wDays = Object.keys(wt).map(Number).filter((d) => wt[d] != null).sort((a, b) => a - b);
       const wFirst = wDays.length ? Number(wt[wDays[0]]) : null;
       const wLast = wDays.length ? Number(wt[wDays[wDays.length - 1]]) : null;
-      return { mk, mm, basic, other, exp, cnt: Number((mm.reading && mm.reading.count) || 0), exd: Number((mm.exercise && mm.exercise.days) || 0), wFirst, wLast };
+      return { mk, mm, fin, basic, other, unexpected, exp, cnt: Number((mm.reading && mm.reading.count) || 0), exd: Number((mm.exercise && mm.exercise.days) || 0), wFirst, wLast };
     });
     const wYear = weightYear(Y);
     const wk = workYear(Y);
@@ -1642,6 +1956,7 @@
       stat("全年支出", expSum ? "¥" + fmt(expSum) : "—"),
       stat("基础支出", basicSum ? "¥" + fmt(basicSum) : "—"),
       stat("其他支出", otherSum ? "¥" + fmt(otherSum) : "—"),
+      stat("意外支出", unexpectedSum ? "¥" + fmt(unexpectedSum) : "—"),
       stat("读完书目", bookSum ? bookSum : "—", "本"),
       stat("运动总天数", exDaysSum ? exDaysSum : "—", "天"),
       stat("体重 年头→年尾", wYear ? `${wYear.first.toFixed(1)}→${wYear.last.toFixed(1)}kg` : "—"),
@@ -1661,9 +1976,13 @@
         if (r.mm.entertainment) items.push(["娱乐回顾", r.mm.entertainment]);
         if (r.mm.wNote) items.push(["减肥小结", r.mm.wNote]);
         if (r.mm.mNote) items.push(["心理小结", r.mm.mNote]);
+        // 财务备注栏（年度汇总体现）
+        if (r.fin.otherNote) items.push(["其他支出备注", r.fin.otherNote]);
+        if (r.fin.unexpectedNote) items.push(["意外支出备注", r.fin.unexpectedNote]);
         const nums = [];
         if (r.basic) nums.push("基础 ¥" + fmt(r.basic));
         if (r.other) nums.push("其他 ¥" + fmt(r.other));
+        if (r.unexpected) nums.push("意外 ¥" + fmt(r.unexpected));
         if (r.cnt) nums.push("书 " + r.cnt + " 本");
         if (r.exd) nums.push("动 " + r.exd + " 天");
         if (r.wFirst != null) nums.push("体重 " + r.wFirst.toFixed(1) + "→" + r.wLast.toFixed(1) + "kg");
@@ -1676,8 +1995,9 @@
 
     const hasAny = rows.some(
       (r) =>
-        r.basic || r.other || r.cnt || r.exd || r.wFirst != null ||
-        r.mm.review || r.mm.thoughts || r.mm.woNote || r.mm.body || r.mm.entertainment || r.mm.wNote || r.mm.mNote
+        r.basic || r.other || r.unexpected || r.cnt || r.exd || r.wFirst != null ||
+        r.mm.review || r.mm.thoughts || r.mm.woNote || r.mm.body || r.mm.entertainment || r.mm.wNote || r.mm.mNote ||
+        r.fin.otherNote || r.fin.unexpectedNote
     );
     return `
       <div class="mp-grid">${grid}</div>
@@ -2422,12 +2742,13 @@
   /* ============================================================
      视图切换 & 渲染调度
      ============================================================ */
-  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", cat: "猫咪", baby: "宝宝", ai: "AI 分析", monthly: "月度总结" };
+  const VIEW_TITLE = { weight: "体重管理", mood: "每日心情", work: "工作情况", hunger: "饥饿记录", cat: "猫咪", baby: "宝宝", ai: "AI 分析", monthly: "月度总结" };
   function renderCurrentView() {
     const active = $(".nav-item.active").dataset.view;
     if (active === "weight") renderWeight();
     else if (active === "mood") renderMood();
     else if (active === "work") renderWork();
+    else if (active === "hunger") renderHunger();
     else if (active === "cat") renderCat();
     else if (active === "baby") renderBaby();
     else if (active === "ai") renderAI();
@@ -2448,7 +2769,7 @@
     return {
       profile: { gender: "女", age: 28, height: 165, activity: 1.375, target: 52 },
       menstrual: { lastStart: "", cycleLen: 28, periodLen: 5 },
-      calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {},
+      calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {}, urine: {}, hunger: {},
       cat: { cats: { "泡泡": { litter: {}, weight: {} }, "喵喵": { litter: {}, weight: {} } }, active: "泡泡" },
       baby: {},
     };

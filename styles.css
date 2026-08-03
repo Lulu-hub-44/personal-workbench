@@ -133,6 +133,10 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
 .hcell .vsmall{font-size:11px;font-weight:600;}
 .hcell.empty .v{color:var(--ink-3);font-weight:500;font-size:13px;}
 
+/* 饥饿记录色 */
+.hcell.h-ate-yes{background:var(--c-blue);border-color:#8fb0cf;color:#fff;}
+.hcell.h-ate-no{background:var(--c-orange);border-color:#d9a367;color:#fff;}
+
 /* 热量色 */
 .hcell.c-green{background:var(--c-green);border-color:#9bbf93;}
 .hcell.c-blue{background:var(--c-blue);border-color:#8fb0cf;}
