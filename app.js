@@ -486,11 +486,14 @@
     if (!state.urine[k]) state.urine[k] = {};
     return state.urine[k];
   }
-  // 饥饿记录：按月按天存一条 { mealTime, content, feeling, ate(true/false), afterFeeling }
+  // 饥饿记录：按月按天存一条/多条记录数组，每条 { mealTime, content, feeling, ate(true/false), afterFeeling }
   function ensureHunger() {
     const k = monthKey();
     if (!state.hunger[k]) state.hunger[k] = { days: {} };
     if (!state.hunger[k].days) state.hunger[k].days = {};
+    // 兼容旧版：单条记录对象 → 数组
+    const days = state.hunger[k].days;
+    for (const d in days) if (days[d] && !Array.isArray(days[d])) days[d] = [days[d]];
     return state.hunger[k];
   }
   // 生病标记：按月按天存 true（生病会抑制排尿、加重储水，作为“例外情况”单独分析）
@@ -1557,11 +1560,13 @@
     const off = firstOffset();
     for (let i = 0; i < off; i++) html += `<div></div>`;
     for (let d = 1; d <= total; d++) {
-      const rec = h.days[d];
-      const cls = rec ? (rec.ate === false ? "h-ate-no" : "h-ate-yes") : "";
-      const label = rec ? (rec.ate === false ? "没吃" : "吃了") : "";
+      const arr = hungerArr(h, d);
+      const cnt = arr.length;
+      const anyNo = arr.some((r) => r && r.ate === false);
+      const cls = cnt ? (anyNo ? "h-ate-no" : "h-ate-yes") : "";
+      const label = cnt ? (cnt > 1 ? `${cnt}条` : arr[0].ate === false ? "没吃" : "吃了") : "";
       html += `<div class="hcell ${cls}" data-day="${d}"><span class="d">${d}</span>${
-        rec ? `<span class="sub">${label}</span>` : ""
+        cnt ? `<span class="sub">${label}</span>` : ""
       }</div>`;
     }
     hm.innerHTML = html;
@@ -1580,17 +1585,21 @@
         .map(([t, c]) => `<span class="lg"><span class="dot" style="background:${c}"></span>${t}</span>`)
         .join("");
 
-    // 统计
-    const recDays = Object.keys(h.days).map(Number).filter((d) => h.days[d]).sort((a, b) => a - b);
-    const ateN = recDays.filter((d) => h.days[d].ate !== false).length;
-    const noN = recDays.length - ateN;
+    // 统计：基于“记录条目”（每天可多条）
+    const all = [];
+    Object.keys(h.days).forEach((d) => hungerArr(h, Number(d)).forEach((r) => all.push({ d: Number(d), rec: r })));
+    const recCount = all.length;
+    const dayCount = Object.keys(h.days).filter((d) => hungerArr(h, Number(d)).length).length;
+    const ateN = all.filter((x) => x.rec.ate !== false).length;
+    const noN = recCount - ateN;
     const sb = $("#hunger-stats");
     if (sb)
       sb.innerHTML = [
-        ["录入天数", recDays.length],
-        ["吃了", ateN + " 天"],
-        ["没吃", noN + " 天"],
-        ["没吃占比", recDays.length ? Math.round((noN / recDays.length) * 100) + "%" : "—"],
+        ["录入条目", recCount],
+        ["记录天数", dayCount + " 天"],
+        ["吃了", ateN],
+        ["没吃", noN],
+        ["没吃占比", recCount ? Math.round((noN / recCount) * 100) + "%" : "—"],
       ]
         .map(([k, n]) => `<div class="stat"><div class="k">${k}</div><div class="n">${n}</div></div>`)
         .join("");
@@ -1604,10 +1613,10 @@
     if (!box) return;
     const rows = [];
     for (let d = 1; d <= total; d++) {
-      const rec = h.days[d];
-      if (!rec) continue;
-      const c = cal.days[d] != null ? Number(cal.days[d]) : null;
-      rows.push({ d, rec, c });
+      hungerArr(h, d).forEach((rec) => {
+        const c = cal.days[d] != null ? Number(cal.days[d]) : null;
+        rows.push({ d, rec, c });
+      });
     }
     if (!rows.length) {
       box.innerHTML = `<p class="muted">记录饥饿后，这里会结合当天热量，分析「忍饿」与「进食」对超标 / 低热量摄入的影响。</p>`;
@@ -1623,11 +1632,11 @@
         : `<span class="pill" style="background:var(--c-blue);color:#fff">${c}</span>`;
     const ateRows = rows.filter((r) => r.rec.ate !== false);
     const noRows = rows.filter((r) => r.rec.ate === false);
-    let html = `<div class="reason-block"><div class="reason-sub"><b>进食日（${ateRows.length} 天）</b></div><ul class="reason-list">`;
+    let html = `<div class="reason-block"><div class="reason-sub"><b>进食（${ateRows.length} 条）</b></div><ul class="reason-list">`;
     ateRows.forEach(({ d, rec, c }) => {
       html += `<li>${monthKey()}-${pad(d)} 吃了：${escHtml(rec.feeling || "—")} ${pill(c)}</li>`;
     });
-    html += `</ul><div class="reason-sub"><b>没吃日（${noRows.length} 天）</b></div><ul class="reason-list">`;
+    html += `</ul><div class="reason-sub"><b>没吃（${noRows.length} 条）</b></div><ul class="reason-list">`;
     noRows.forEach(({ d, rec, c }) => {
       html += `<li>${monthKey()}-${pad(d)} 没吃：${escHtml(rec.afterFeeling || rec.feeling || "—")} ${pill(c)}</li>`;
     });
@@ -1658,57 +1667,108 @@
 
   function openHungerModal(day) {
     const h = ensureHunger();
-    const rec = h.days[day] || { mealTime: "", content: "", feeling: "", ate: true, afterFeeling: "" };
-    modal.innerHTML = `
-      <h3>${monthKey()}-${pad(day)} · 饥饿记录</h3>
-      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">前一顿吃饭时间</label>
-      <input class="modal-input" id="h-mealTime" type="time" value="${rec.mealTime || ""}" />
-      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">前一顿吃的内容</label>
-      <input class="modal-input" id="h-content" value="${escHtml(rec.content || "")}" placeholder="例如 午餐 糙米饭+鸡胸+蔬菜" />
-      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">此时感觉</label>
-      <input class="modal-input" id="h-feeling" value="${escHtml(rec.feeling || "")}" placeholder="饿、嘴馋、无聊、焦虑……" />
-      <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">吃或者没吃？</label>
-      <div style="display:flex;gap:18px;margin:4px 0 6px">
-        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="1" ${rec.ate !== false ? "checked" : ""}/> 吃了</label>
-        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="0" ${rec.ate === false ? "checked" : ""}/> 没吃</label>
-      </div>
-      <div id="h-after-wrap" style="${rec.ate === false ? "" : "display:none"}">
-        <label class="muted" style="display:block;margin:8px 0 4px;font-weight:600">没吃之后的感受</label>
-        <textarea id="h-after" placeholder="忍饿后是否更焦虑 / 更饿 / 反而轻松……">${escHtml(rec.afterFeeling || "")}</textarea>
-      </div>
-      <div class="modal-actions">
-        <button class="link-btn" id="h-del">清除</button>
-        <button class="primary-btn" id="h-save">保存</button>
-      </div>`;
-    mask.hidden = false;
-    $$('input[name="h-ate"]').forEach((r) =>
-      r.addEventListener("change", () => {
-        const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
-        $("#h-after-wrap").style.display = ate ? "none" : "";
-      })
-    );
-    $("#h-mealTime").focus();
-    $("#h-save").onclick = () => {
-      const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
-      const data = {
-        mealTime: $("#h-mealTime").value,
-        content: $("#h-content").value.trim(),
-        feeling: $("#h-feeling").value.trim(),
-        ate,
-        afterFeeling: ate ? "" : $("#h-after").value.trim(),
+    let editing = null; // 正在编辑的记录下标；null=新增
+
+    const renderEditor = () => {
+      const arr = hungerArr(h, day);
+      const rec = editing != null ? arr[editing] : null;
+      const items = arr.length
+        ? arr
+            .map((r, i) => {
+              const ate = r.ate !== false;
+              const meta = [];
+              if (r.mealTime) meta.push("饭前 " + escHtml(r.mealTime));
+              if (r.content) meta.push("前餐 " + escHtml(r.content));
+              meta.push("感觉 " + escHtml(r.feeling || "—"));
+              if (!ate && r.afterFeeling) meta.push("没吃后 " + escHtml(r.afterFeeling));
+              return `<div class="h-rec">
+                <div class="h-rec-top"><span class="h-tag ${ate ? "h-yes" : "h-no"}">${ate ? "吃了" : "没吃"}</span>
+                  <span class="h-rec-act"><button class="link-btn" data-edit="${i}">编辑</button><button class="link-btn danger" data-del="${i}">删除</button></span></div>
+                <div class="h-rec-meta">${escHtml(meta.join(" · "))}</div>
+              </div>`;
+            })
+            .join("")
+        : `<p class="muted" style="margin:6px 0">当天还没有饥饿记录，下面添加第一条。</p>`;
+      modal.innerHTML = `
+        <h3>${monthKey()}-${pad(day)} · 饥饿记录（${arr.length} 条）</h3>
+        <div class="h-rec-list">${items}</div>
+        <hr style="margin:14px 0;border:none;border-top:1px solid var(--line)">
+        <div style="font-weight:600;margin-bottom:8px">${editing != null ? "编辑第 " + (editing + 1) + " 条" : "新增一条"}</div>
+        <label class="muted" style="display:block;margin:8px 0 4px;font-weight:600">前一顿吃饭时间</label>
+        <input class="modal-input" id="h-mealTime" type="time" value="${rec ? escAttr(rec.mealTime || "") : ""}" />
+        <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">前一顿吃的内容</label>
+        <input class="modal-input" id="h-content" value="${rec ? escAttr(rec.content || "") : ""}" placeholder="例如 午餐 糙米饭+鸡胸+蔬菜" />
+        <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">此时感觉</label>
+        <input class="modal-input" id="h-feeling" value="${rec ? escAttr(rec.feeling || "") : ""}" placeholder="饿、嘴馋、无聊、焦虑……" />
+        <label class="muted" style="display:block;margin:12px 0 4px;font-weight:600">吃或者没吃？</label>
+        <div style="display:flex;gap:18px;margin:4px 0 6px">
+          <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="1" ${!rec || rec.ate !== false ? "checked" : ""}/> 吃了</label>
+          <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="h-ate" value="0" ${rec && rec.ate === false ? "checked" : ""}/> 没吃</label>
+        </div>
+        <div id="h-after-wrap" style="${rec && rec.ate === false ? "" : "display:none"}">
+          <label class="muted" style="display:block;margin:8px 0 4px;font-weight:600">没吃之后的感受</label>
+          <textarea id="h-after" placeholder="忍饿后是否更焦虑 / 更饿 / 反而轻松……">${rec ? escHtml(rec.afterFeeling || "") : ""}</textarea>
+        </div>
+        <div class="modal-actions">
+          ${editing != null ? '<button class="link-btn" id="h-cancel-edit">取消编辑</button>' : ""}
+          <button class="link-btn" id="h-del-all">清除当天</button>
+          <button class="primary-btn" id="h-save">${editing != null ? "更新这条" : "保存这条"}</button>
+        </div>`;
+      mask.hidden = false;
+      $$('input[name="h-ate"]').forEach((r) =>
+        r.addEventListener("change", () => {
+          const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
+          $("#h-after-wrap").style.display = ate ? "none" : "";
+        })
+      );
+      $$("[data-edit]").forEach((b) =>
+        b.addEventListener("click", () => {
+          editing = Number(b.dataset.edit);
+          renderEditor();
+        })
+      );
+      $$("[data-del]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const i = Number(b.dataset.del);
+          const a = hungerArr(h, day);
+          a.splice(i, 1);
+          writeHungerDay(h, day, a);
+          editing = null;
+          save();
+          renderEditor();
+        })
+      );
+      const cancel = $("#h-cancel-edit");
+      if (cancel) cancel.onclick = () => { editing = null; renderEditor(); };
+      $("#h-del-all").onclick = () => {
+        delete h.days[day];
+        save();
+        closeModal();
+        renderHunger();
       };
-      if (!data.mealTime && !data.content && !data.feeling && !data.afterFeeling) delete h.days[day];
-      else h.days[day] = data;
-      save();
-      closeModal();
-      renderHunger();
+      $("#h-save").onclick = () => {
+        const ate = $$('input[name="h-ate"]').find((x) => x.checked).value === "1";
+        const data = {
+          mealTime: $("#h-mealTime").value,
+          content: $("#h-content").value.trim(),
+          feeling: $("#h-feeling").value.trim(),
+          ate,
+          afterFeeling: ate ? "" : $("#h-after").value.trim(),
+        };
+        const a = hungerArr(h, day);
+        const empty = !data.mealTime && !data.content && !data.feeling && !data.afterFeeling;
+        if (empty) {
+          if (editing != null) a.splice(editing, 1); // 编辑成空 → 删除该条
+        } else if (editing != null) a[editing] = data;
+        else a.push(data);
+        writeHungerDay(h, day, a);
+        save();
+        closeModal();
+        renderHunger();
+      };
+      setTimeout(() => { const el = $("#h-mealTime"); if (el) el.focus(); }, 0);
     };
-    $("#h-del").onclick = () => {
-      delete h.days[day];
-      save();
-      closeModal();
-      renderHunger();
-    };
+    renderEditor();
   }
 
   /* ============================================================
@@ -2784,6 +2844,19 @@
   }
   function escHtml(s) {
     return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  }
+  function escAttr(s) {
+    return escHtml(s).replace(/"/g, "&quot;");
+  }
+  // 饥饿记录按“天”归并；兼容旧版单条记录（对象），统一为数组
+  function hungerArr(h, day) {
+    const v = h.days ? h.days[day] : null;
+    if (v == null) return [];
+    return Array.isArray(v) ? v : [v];
+  }
+  function writeHungerDay(h, day, arr) {
+    if (!arr || !arr.length) delete h.days[day];
+    else h.days[day] = arr;
   }
   function renderAIYear() {
     const Y = ym().y;

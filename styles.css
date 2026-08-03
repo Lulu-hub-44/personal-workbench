@@ -137,6 +137,16 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
 .hcell.h-ate-yes{background:var(--c-blue);border-color:#8fb0cf;color:#fff;}
 .hcell.h-ate-no{background:var(--c-orange);border-color:#d9a367;color:#fff;}
 
+/* 饥饿记录：当日多条编辑器 */
+.h-rec-list{display:flex;flex-direction:column;gap:8px;max-height:38vh;overflow-y:auto;margin:4px 0;}
+.h-rec{border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:10px 12px;}
+.h-rec-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;}
+.h-rec-act{display:flex;gap:10px;}
+.h-rec-meta{font-size:13px;color:var(--ink-2);line-height:1.5;}
+.h-tag{font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;color:#fff;}
+.h-tag.h-yes{background:var(--c-blue);}
+.h-tag.h-no{background:var(--c-orange);}
+
 /* 热量色 */
 .hcell.c-green{background:var(--c-green);border-color:#9bbf93;}
 .hcell.c-blue{background:var(--c-blue);border-color:#8fb0cf;}
@@ -342,11 +352,11 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
   .modal-mask{place-items:end;padding:0;}
   .modal{
     width:100%;border-radius:20px 20px 0 0;
-    padding:22px 18px calc(88px + env(safe-area-inset-bottom));
+    padding:22px 18px calc(18px + env(safe-area-inset-bottom));
     max-height:92vh;overflow-y:auto;position:relative;
   }
   .modal .modal-actions{
-    position:fixed;left:0;right:0;bottom:0;margin:0;
+    position:sticky;left:0;right:0;bottom:0;margin:18px 0 0;
     padding:12px 18px calc(14px + env(safe-area-inset-bottom));
     background:var(--panel);border-top:1px solid var(--line);
     display:flex;flex-direction:column;gap:10px;z-index:60;
