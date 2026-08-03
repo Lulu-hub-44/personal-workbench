@@ -412,6 +412,55 @@ code{background:var(--panel-2);padding:1px 6px;border-radius:6px;font-size:12px;
 .ghost-btn.sm{padding:5px 10px;font-size:12px;margin-top:8px;}
 .link-btn.danger{color:#c06a6a;}
 .link-btn.danger:hover{color:#a13b3b;}
+
+/* 手机端：猫砂表格 → 卡片式（每行一张卡片，字段横排可读） */
+@media(max-width:760px){
+  .litter-tbl{display:block;width:100%;}
+  .litter-tbl thead{display:none;}
+  .litter-tbl tbody{display:block;}
+  .litter-tbl tr{
+    display:block;margin-bottom:10px;border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;background:var(--panel-2);overflow:hidden;
+  }
+  .litter-tbl tr:hover td{background:transparent;}
+  .litter-tbl td{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:5px 0;border-bottom:none;font-size:13px;
+  }
+  /* 名称独占一行 */
+  .litter-tbl td[data-label="名称"]{
+    flex-direction:column;align-items:stretch;gap:4px;
+    margin-bottom:6px;
+  }
+  .litter-tbl td[data-label="名称"]::before{content:"猫砂名称";font-size:11px;color:var(--ink-2);font-weight:600;}
+  /* 钱 / kg / 用量 三列横排 */
+  .litter-tbl td[data-label="钱"],
+  .litter-tbl td[data-label="kg"],
+  .litter-tbl td[data-label="用量"]{
+    flex:1;min-width:0;
+  }
+  .litter-tbl td[data-label="钱"]::before,
+  .litter-tbl td[data-label="kg"]::before,
+  .litter-tbl td[data-label="用量"]::before{
+    content:attr(data-label);font-size:10px;color:var(--ink-3);flex-shrink:0;
+  }
+  /* 单价 / 费用 / 删 横排 */
+  .litter-tbl td[data-label="单价"],
+  .litter-tbl td[data-label="费用"]{
+    flex:1.2;min-width:0;text-align:center;justify-content:center;
+  }
+  .litter-tbl td[data-label="单价"]::before,
+  .litter-tbl td[data-label="费用"]::before{
+    content:attr(data-label);font-size:10px;color:var(--ink-3);display:block;margin-bottom:2px;
+  }
+  .litter-tbl td[data-label=""]{
+    justify-content:flex-end;flex:0 0 auto;
+  }
+  /* 输入框在卡片里稍大一点 */
+  .litter-tbl .cell-in{padding:7px 8px;font-size:13px;border-radius:8px;}
+  .litter-tbl .cell-in.num{text-align:center;max-width:60px;}
+  .litter-tbl .calc{background:transparent;color:#9a7bbf;font-size:14px;font-weight:700;}
+}
 @media(max-width:760px){
   .litter-boxes{grid-template-columns:1fr;}
   .session-head{flex-direction:column;align-items:stretch;}

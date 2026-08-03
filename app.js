@@ -2293,13 +2293,13 @@
           .map(
             (row, ri) => `
           <tr>
-            <td><input class="cell-in" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="name" value="${escAttr(row.name)}" placeholder="猫砂名"/></td>
-            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="money" value="${escAttr(row.money)}" placeholder="钱"/></td>
-            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="kg" value="${escAttr(row.kg)}" placeholder="kg"/></td>
-            <td class="calc"><span id="unit-${s.id}-${bi}-${ri}">${fmt(rowUnit(row))}</span></td>
-            <td><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="usage" value="${escAttr(row.usage)}" placeholder="本次用量"/></td>
-            <td class="calc"><span id="cost-${s.id}-${bi}-${ri}">${fmt(rowCost(row))}</span></td>
-            <td><button class="link-btn danger" data-act="del-row" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}">删</button></td>
+            <td data-label="名称"><input class="cell-in" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="name" value="${escAttr(row.name)}" placeholder="猫砂名"/></td>
+            <td data-label="钱"><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="money" value="${escAttr(row.money)}" placeholder="钱"/></td>
+            <td data-label="kg"><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="kg" value="${escAttr(row.kg)}" placeholder="kg"/></td>
+            <td data-label="单价" class="calc"><span id="unit-${s.id}-${bi}-${ri}">${fmt(rowUnit(row))}</span></td>
+            <td data-label="用量"><input class="cell-in num" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}" data-rfield="usage" value="${escAttr(row.usage)}" placeholder="本次用量"/></td>
+            <td data-label="费用" class="calc"><span id="cost-${s.id}-${bi}-${ri}">${fmt(rowCost(row))}</span></td>
+            <td data-label=""><button class="link-btn danger" data-act="del-row" data-sid="${s.id}" data-box="${bi}" data-ri="${ri}">删</button></td>
           </tr>`
           )
           .join("");
