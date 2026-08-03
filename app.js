@@ -1263,8 +1263,9 @@
         <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="m-urn" value="多" ${curU === "多" ? "checked" : ""}/> 多</label>
       </div>
       <label style="display:flex;align-items:center;gap:8px;margin:10px 0 2px;font-weight:600;color:#C0564F">
-        <input type="checkbox" id="m-sick" ${curSick ? "checked" : ""}/> 🤒 生病（异常储水：生病会抑制排尿、加重储水，单独分析）
+        <input type="checkbox" id="m-sick" ${curSick ? "checked" : ""}/> 🤒 生病（异常储水）
       </label>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">生病会抑制排尿、加重储水，将作为暂时储水单独分析，不污染趋势判断。</p>
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">备注 / 诱因（超标或低热量原因）</label>
       <textarea id="m-note" placeholder="超标原因：聚餐 / 情绪性进食……  或  低热量原因：忙碌漏餐 / 身体不适……">${note}</textarea>
       <div class="modal-actions">
