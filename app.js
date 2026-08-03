@@ -377,9 +377,13 @@
   };
   /* ---------- 尿量 → 储水修正 ---------- */
   // 正常每日尿量约 1500ml；尿量每低于基线 3000ml ≈ 身体多储水 1kg（反之亦然）
+  // 记录用「少 / 正常 / 多」分级（无需估算 ml），映射为代表性尿量用于储水修正
   const URINE_BASELINE = 1500;
   const URINE_SCALE = 3000;
-  function urineAdj(ml) {
+  const URINE_CAT = { "少": 1000, "正常": 1500, "多": 2000 };
+  function urineAdj(input) {
+    let ml = input;
+    if (typeof input === "string" && URINE_CAT[input] != null) ml = URINE_CAT[input];
     if (ml == null || ml === "" || isNaN(Number(ml))) return 0;
     return (URINE_BASELINE - Number(ml)) / URINE_SCALE; // 正=偏储水，负=偏排水
   }
@@ -886,30 +890,38 @@
   function renderUrine() {
     const { y, m } = ym();
     const urn = state.urine[monthKey()] || {};
-    const vals = Object.keys(urn).map(Number).filter((d) => urn[d] != null).map(Number);
+    const days = Object.keys(urn).map(Number).filter((d) => urn[d] != null);
     const box = $("#urine-stats");
     if (!box) return;
-    if (!vals.length) {
+    if (!days.length) {
       box.innerHTML = `<div class="stat"><div class="k">尿量记录</div><div class="n">暂无</div></div>
-        <div class="stat"><div class="k">累计尿量</div><div class="n">—</div></div>
-        <div class="stat"><div class="k">日均尿量</div><div class="n">—</div></div>
-        <div class="stat"><div class="k">末次尿量</div><div class="n">—</div></div>`;
+        <div class="stat"><div class="k">少(储水)</div><div class="n">—</div></div>
+        <div class="stat"><div class="k">正常</div><div class="n">—</div></div>
+        <div class="stat"><div class="k">多(排水)</div><div class="n">—</div></div>`;
     } else {
-      const sum = vals.reduce((a, b) => a + b, 0);
-      const last = vals[vals.length - 1];
-      const avg = Math.round(sum / vals.length);
-      const retainTxt = avg < URINE_BASELINE ? "偏储水" : avg > URINE_BASELINE ? "偏排水" : "平衡";
+      const low = days.filter((d) => urn[d] === "少").length;
+      const normal = days.filter((d) => urn[d] === "正常").length;
+      const high = days.filter((d) => urn[d] === "多").length;
+      const retain = low > high ? "偏储水" : high > low ? "偏排水" : "平衡";
       box.innerHTML = `
-        <div class="stat"><div class="k">尿量记录</div><div class="n">${vals.length}<span class="u">天</span></div></div>
-        <div class="stat"><div class="k">累计尿量</div><div class="n">${sum.toLocaleString()}<span class="u">ml</span></div></div>
-        <div class="stat"><div class="k">日均尿量</div><div class="n">${avg}<span class="u">ml</span></div></div>
-        <div class="stat"><div class="k">末次尿量</div><div class="n">${last}<span class="u">ml</span></div></div>
-        <div class="stat"><div class="k">储水倾向</div><div class="n">${retainTxt}</div></div>`;
+        <div class="stat"><div class="k">尿量记录</div><div class="n">${days.length}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">少(储水)</div><div class="n">${low}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">正常</div><div class="n">${normal}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">多(排水)</div><div class="n">${high}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">储水倾向</div><div class="n">${retain}</div></div>`;
     }
-    // 当月尿量柱状图
+    // 当月尿量柱状图（按少/正常/多用颜色区分）
     const total = daysInMonth();
-    const labels = [], data = [];
-    for (let d = 1; d <= total; d++) { labels.push(d); data.push(urn[d] != null ? Number(urn[d]) : null); }
+    const labels = [], data = [], colors = [];
+    for (let d = 1; d <= total; d++) {
+      const c = urn[d];
+      labels.push(d);
+      if (c == null) { data.push(null); colors.push("rgba(0,0,0,0)"); }
+      else {
+        data.push(URINE_CAT[c]);
+        colors.push(c === "少" ? "rgba(155,127,176,.55)" : c === "正常" ? "rgba(159,187,214,.55)" : "rgba(127,168,176,.55)");
+      }
+    }
     if (urineChart) urineChart.destroy();
     if (typeof Chart === "undefined") return;
     const cv = $("#urine-chart");
@@ -920,11 +932,9 @@
         labels,
         datasets: [
           {
-            label: "尿量(ml)",
+            label: "尿量",
             data,
-            backgroundColor: data.map((v) =>
-              v == null ? "rgba(0,0,0,0)" : v < URINE_BASELINE ? "rgba(155,127,176,.55)" : "rgba(127,168,176,.55)"
-            ),
+            backgroundColor: colors,
             borderRadius: 3,
             spanGaps: true,
           },
@@ -934,7 +944,7 @@
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          y: { beginAtZero: true, title: { display: true, text: "ml" } },
+          y: { beginAtZero: true, max: 2500, title: { display: true, text: "ml(估算)" } },
           x: { ticks: { autoSkip: true, maxTicksLimit: 15, maxRotation: 0, font: { size: 9 } } },
         },
         plugins: { legend: { display: false } },
@@ -1067,16 +1077,16 @@
     }
     // 尿量储水分析（与经期相位互补，独立可用）
     const urn = state.urine[monthKey()] || {};
-    const urnVals = Object.keys(urn).map(Number).filter((d) => urn[d] != null).map(Number);
-    if (urnVals.length) {
-      const urnAvg = Math.round(urnVals.reduce((a, b) => a + b, 0) / urnVals.length);
-      const lowDays = urnVals.filter((v) => v < URINE_BASELINE).length;
-      const adj = urineAdj(urnAvg);
+    const urnDays = Object.keys(urn).map(Number).filter((d) => urn[d] != null);
+    if (urnDays.length) {
+      const low = urnDays.filter((d) => urn[d] === "少").length;
+      const high = urnDays.filter((d) => urn[d] === "多").length;
+      const adj = urineAdj(low > high ? "少" : high > low ? "多" : "正常");
       const direction = adj > 0.05 ? "偏储水" : adj < -0.05 ? "偏排水" : "基本平衡";
       let uNote = `<p class="muted" style="line-height:1.8;margin-top:8px">
-        💧 <b>尿量储水分析：</b>本月平均尿量 <strong>${urnAvg}ml</strong>（正常约 ${URINE_BASELINE}ml），整体${direction}（约 ${adj > 0 ? "+" : ""}${adj.toFixed(2)}kg 水分）；其中 ${lowDays}/${urnVals.length} 天尿量偏低，当日称重组读数可能虚高。`;
+        💧 <b>尿量储水分析：</b>本月共 ${urnDays.length} 天记录尿量，其中 少(偏储水) <strong>${low}</strong> 天、多(偏排水) <strong>${high}</strong> 天，整体${direction}（约 ${adj > 0 ? "+" : ""}${adj.toFixed(2)}kg 水分）；"少"的日子称重组读数可能虚高。`;
       uNote += state.menstrual.lastStart
-        ? ` 结合经期相位：若经前/经期尿量也偏低，说明"激素储水+少尿"叠加，体重虚涨更明显，经期后尿量回升即会回落。`
+        ? ` 结合经期相位：若经前/经期恰逢"少"，说明"激素储水+少尿"叠加，体重虚涨更明显，经期后尿量回升即会回落。`
         : ` 设置月经周期后，可进一步区分"激素储水"与"少尿储水"。`;
       uNote += ` 趋势图的<strong>去水线</strong>已按每日尿量修正，比单纯看体重更贴近真实脂肪变化。</p>`;
       note += uNote;
@@ -1201,8 +1211,12 @@
       <input class="modal-input" id="m-wt" type="number" min="0" step="0.1" value="${curW}" placeholder="例如 55.2" />
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">运动消耗（大卡）</label>
       <input class="modal-input" id="m-ex" type="number" min="0" step="10" value="${curE}" placeholder="例如 200" />
-      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">尿量（ml）</label>
-      <input class="modal-input" id="m-urn" type="number" min="0" step="50" value="${curU}" placeholder="例如 1500（正常约 1200~2000）" />
+      <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">尿量（少 / 正常 / 多，无需估算 ml）</label>
+      <div style="display:flex;gap:18px;margin:4px 0 2px">
+        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="m-urn" value="少" ${curU === "少" ? "checked" : ""}/> 少</label>
+        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="m-urn" value="正常" ${curU === "正常" ? "checked" : ""}/> 正常</label>
+        <label style="display:flex;align-items:center;gap:6px"><input type="radio" name="m-urn" value="多" ${curU === "多" ? "checked" : ""}/> 多</label>
+      </div>
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">备注 / 诱因（超标或低热量原因）</label>
       <textarea id="m-note" placeholder="超标原因：聚餐 / 情绪性进食……  或  低热量原因：忙碌漏餐 / 身体不适……">${note}</textarea>
       <div class="modal-actions">
@@ -1214,12 +1228,13 @@
     $("#m-save").onclick = () => {
       const c = $("#m-cal").value,
         w = $("#m-wt").value,
-        e = $("#m-ex").value,
-        u = $("#m-urn").value;
+        e = $("#m-ex").value;
+      const ur = $$('input[name="m-urn"]').find((r) => r.checked);
+      const u = ur ? ur.value : "";
       cal.days[day] = c === "" ? undefined : Number(c);
       wt[day] = w === "" ? undefined : Number(w);
       ex[day] = e === "" ? undefined : Number(e);
-      urn[day] = u === "" ? undefined : Number(u);
+      urn[day] = u ? u : undefined;
       cal.notes[day] = $("#m-note").value.trim();
       if (cal.days[day] == null) delete cal.notes[day];
       if (urn[day] == null) delete urn[day];
