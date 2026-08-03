@@ -499,6 +499,12 @@
     if (!state.sick[k]) state.sick[k] = {};
     return state.sick[k];
   }
+  // 吃咸了标记：按月按天存 true（钠摄入多→水钠潴留，与生病同属偶发储水，单独分析）
+  function ensureSalty() {
+    const k = monthKey();
+    if (!state.salty[k]) state.salty[k] = {};
+    return state.salty[k];
+  }
   function ensureMonthly() {
     const k = monthKey();
     const def = {
@@ -770,26 +776,27 @@
         if (wmWt[d] != null) pts.push([wm.offset + (d - 1), Number(wmWt[d])]);
     });
 
-    // 尿量（ml）按窗口天对齐，用于储水修正；生病日储水属异常，不计入预测基线
+    // 尿量（ml）按窗口天对齐，用于储水修正；生病 / 吃咸了等偶发储水日属异常，不计入预测基线
     const urnArr = new Array(totalDays).fill(null);
-    const sickArr = new Array(totalDays).fill(false);
+    const excArr = new Array(totalDays).fill(false); // 偶发储水日（生病或吃咸了）
     let urnSumAdj = 0, urnN = 0;
     windowMonths.forEach((wm) => {
       const wmUrn = state.urine[`${wm.y}-${pad(wm.m)}`] || {};
       const wmSick = state.sick[`${wm.y}-${pad(wm.m)}`] || {};
+      const wmSalty = state.salty[`${wm.y}-${pad(wm.m)}`] || {};
       for (let d = 1; d <= wm.days; d++) {
         const g = wm.offset + (d - 1);
-        if (wmSick[d] === true) sickArr[g] = true;
+        if (wmSick[d] === true || wmSalty[d] === true) excArr[g] = true;
         if (wmUrn[d] != null) {
           urnArr[g] = Number(wmUrn[d]);
-          if (wmSick[d] !== true) { // 生病日储水为暂时异常，不拉低历史均值
+          if (!(wmSick[d] === true || wmSalty[d] === true)) { // 偶发储水日储水为暂时异常，不拉低历史均值
             urnSumAdj += urineAdj(wmUrn[d]);
             urnN++;
           }
         }
       }
     });
-    const avgUrineAdj = urnN ? urnSumAdj / urnN : 0; // 历史平均储水修正（剔除生病日），用于预测
+    const avgUrineAdj = urnN ? urnSumAdj / urnN : 0; // 历史平均储水修正（剔除偶发储水日），用于预测
 
     const actual = new Array(totalDays).fill(null);
     const adjusted = new Array(totalDays).fill(null);
@@ -801,7 +808,7 @@
     });
 
     // 趋势回归剔除生病日（生病导致的暂时储水会歪曲减脂判断），仅用于预测线
-    const regPts = pts.filter(([g]) => !sickArr[g]);
+    const regPts = pts.filter(([g]) => !excArr[g]);
     if (regPts.length >= 2) {
       const n = regPts.length;
       const sx = regPts.reduce((a, p) => a + p[0], 0);
@@ -819,7 +826,7 @@
 
     const pointColors = new Array(totalDays).fill("#B6A6D6");
     for (let g = 0; g < totalDays; g++) {
-      if (sickArr[g]) { pointColors[g] = "#C0564F"; continue; } // 生病日标红
+      if (excArr[g]) { pointColors[g] = "#C0564F"; continue; } // 偶发储水日（生病/吃咸了）标红
       const ph = phaseForDay(gmY[g], gmM[g], gmD[g]);
       if (ph.phase) pointColors[g] = PHASE[ph.phase].color;
     }
@@ -907,8 +914,11 @@
     const urn = state.urine[monthKey()] || {};
     const days = Object.keys(urn).map(Number).filter((d) => urn[d] != null);
     const sickM = state.sick[monthKey()] || {};
+    const saltyM = state.salty[monthKey()] || {};
     const sickDays = days.filter((d) => sickM[d] === true);
-    const lowSick = sickDays.filter((d) => urn[d] === "少").length; // 生病且少尿（异常储水）
+    const saltyDays = days.filter((d) => saltyM[d] === true);
+    const excDays = days.filter((d) => sickM[d] === true || saltyM[d] === true); // 所有偶发储水日（有尿量记录）
+    const lowExc = excDays.filter((d) => urn[d] === "少").length; // 偶发储水且少尿
     const box = $("#urine-stats");
     if (!box) return;
     if (!days.length) {
@@ -917,25 +927,31 @@
         <div class="stat"><div class="k">正常</div><div class="n">—</div></div>
         <div class="stat"><div class="k">多(排水)</div><div class="n">—</div></div>
         <div class="stat"><div class="k">🤒 生病</div><div class="n">0<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">🧂 吃咸了</div><div class="n">0<span class="u">天</span></div></div>
         <div class="stat"><div class="k">储水倾向</div><div class="n">—</div></div>`;
     } else {
       const low = days.filter((d) => urn[d] === "少").length;
       const normal = days.filter((d) => urn[d] === "正常").length;
       const high = days.filter((d) => urn[d] === "多").length;
-      // 储水倾向按“非生病日”判断，避免生病这种例外情况污染 habitual 模式
-      const nsLow = days.filter((d) => sickM[d] !== true && urn[d] === "少").length;
-      const nsHigh = days.filter((d) => sickM[d] !== true && urn[d] === "多").length;
+      // 储水倾向按“非偶发储水日”判断，避免生病 / 吃咸了这类例外情况污染 habitual 模式
+      const excSet = new Set(excDays);
+      const nsLow = days.filter((d) => !excSet.has(d) && urn[d] === "少").length;
+      const nsHigh = days.filter((d) => !excSet.has(d) && urn[d] === "多").length;
       const retain = nsLow > nsHigh ? "偏储水" : nsHigh > nsLow ? "偏排水" : "平衡";
-      const sickHint = lowSick ? `<div class="stat" style="grid-column:1/-1;background:rgba(192,86,79,.08)">
-        <div class="k">⚠️ 异常储水</div><div class="n" style="font-size:13px;font-weight:500">本月少尿 ${low} 天中 <b>${lowSick}</b> 天标记为生病，属<strong>暂时储水</strong>，痊愈后排尿恢复即会回落，勿误判为脂肪增长。</div></div>` : "";
+      const excParts = [];
+      if (sickDays.length) excParts.push(`生病 ${sickDays.length} 天`);
+      if (saltyDays.length) excParts.push(`吃咸了 ${saltyDays.length} 天`);
+      const excHint = lowExc ? `<div class="stat" style="grid-column:1/-1;background:rgba(192,86,79,.08)">
+        <div class="k">⚠️ 异常储水</div><div class="n" style="font-size:13px;font-weight:500">本月少尿 ${low} 天中 <b>${lowExc}</b> 天为偶发储水（${excParts.join("、")}），属<strong>暂时储水</strong>，病愈或排钠后即回落，勿误判为脂肪增长。</div></div>` : "";
       box.innerHTML = `
         <div class="stat"><div class="k">尿量记录</div><div class="n">${days.length}<span class="u">天</span></div></div>
         <div class="stat"><div class="k">少(储水)</div><div class="n">${low}<span class="u">天</span></div></div>
         <div class="stat"><div class="k">正常</div><div class="n">${normal}<span class="u">天</span></div></div>
         <div class="stat"><div class="k">多(排水)</div><div class="n">${high}<span class="u">天</span></div></div>
         <div class="stat"><div class="k">🤒 生病</div><div class="n">${sickDays.length}<span class="u">天</span></div></div>
+        <div class="stat"><div class="k">🧂 吃咸了</div><div class="n">${saltyDays.length}<span class="u">天</span></div></div>
         <div class="stat"><div class="k">储水倾向</div><div class="n">${retain}</div></div>
-        ${sickHint}`;
+        ${excHint}`;
     }
     // 当月尿量柱状图（按少/正常/多用颜色区分）
     const total = daysInMonth();
@@ -947,8 +963,8 @@
       else {
         data.push(URINE_CAT[c]);
         colors.push(c === "少" ? "rgba(155,127,176,.55)" : c === "正常" ? "rgba(159,187,214,.55)" : "rgba(127,168,176,.55)");
-        // 生病日用红色描边区分，提示该日储水属异常/暂时
-        borders.push(sickM[d] === true ? "#C0564F" : "rgba(0,0,0,0)");
+        // 生病 / 吃咸了等偶发储水日用红色描边区分，提示该日储水属异常/暂时
+        borders.push(sickM[d] === true || saltyM[d] === true ? "#C0564F" : "rgba(0,0,0,0)");
       }
     }
     if (urineChart) urineChart.destroy();
@@ -1122,16 +1138,21 @@
       uNote += ` 趋势图的<strong>去水线</strong>已按每日尿量修正，比单纯看体重更贴近真实脂肪变化。</p>`;
       note += uNote;
     }
-    // 生病储水分析：生病抑制排尿 → 暂时储水，作为“例外情况”单独解读，不污染趋势
+    // 偶发储水分析：生病 / 吃咸了都会引起暂时储水，作为“例外情况”单独解读，不污染趋势
     const sickM = state.sick[monthKey()] || {};
+    const saltyM = state.salty[monthKey()] || {};
     const sickDays = Object.keys(sickM).map(Number).filter((d) => sickM[d] === true);
-    if (sickDays.length) {
+    const saltyDays = Object.keys(saltyM).map(Number).filter((d) => saltyM[d] === true);
+    const excDays = sickDays.concat(saltyDays);
+    if (excDays.length) {
       const urnS = state.urine[monthKey()] || {};
-      const sickLowU = sickDays.filter((d) => urnS[d] === "少").length;
+      const excLowU = excDays.filter((d) => urnS[d] === "少").length;
+      const parts = [];
+      if (sickDays.length) parts.push(`🤒 生病 ${sickDays.length} 天`);
+      if (saltyDays.length) parts.push(`🧂 吃咸了 ${saltyDays.length} 天`);
       let sNote = `<p class="muted" style="line-height:1.8;margin-top:8px;background:rgba(192,86,79,.07);padding:8px 10px;border-radius:8px">
-        🤒 <b>生病储水：</b>本月标记生病 <strong>${sickDays.length}</strong> 天${sickLowU ? `，其中 <strong>${sickLowU}</strong> 天伴随少尿` : ""}。生病会抑制排尿、加重水钠潴留，称重组读数因此<strong>暂时虚高</strong>属正常现象；
-        病愈后尿量回升，水分自然排出、体重即回落，<strong>请勿与脂肪增长混淆</strong>。`;
-      sNote += ` 体重图的<strong>预测线已对生病日降权</strong>、去水线也按每日尿量修正，可放心用来观察真实减脂趋势；尿量图里生病日以<strong style="color:#C0564F">红边</strong>标出。</p>`;
+        ⚠️ <b>偶发储水：</b>本月标记${parts.join("、")}${excLowU ? `，其中 <strong>${excLowU}</strong> 天伴随少尿` : ""}。这两者都会让身体<strong>暂时储水</strong>、称重组读数虚高——生病抑制排尿、吃咸了则因钠潴留；诱因解除（病愈 / 多喝水排钠）后水分自然排出、体重即回落，<strong>请勿与脂肪增长混淆</strong>。`;
+      sNote += ` 体重图的<strong>预测线已对这些偶发储水日降权</strong>、去水线也按每日尿量修正，可放心用来观察真实减脂趋势；尿量图里偶发储水日以<strong style="color:#C0564F">红边</strong>标出。</p>`;
       note += sNote;
     }
     }
@@ -1241,11 +1262,13 @@
     const ex = ensureExercise();
     const urn = ensureUrine();
     const sick = ensureSick();
+    const salty = ensureSalty();
     const curC = cal.days[day] != null ? cal.days[day] : "";
     const curW = wt[day] != null ? wt[day] : "";
     const curE = ex[day] != null ? ex[day] : "";
     const curU = urn[day] != null ? urn[day] : "";
     const curSick = sick[day] === true;
+    const curSalty = salty[day] === true;
     const note = cal.notes[day] || "";
     modal.innerHTML = `
       <h3>${monthKey()}-${pad(day)} · 记录</h3>
@@ -1266,6 +1289,10 @@
         <input type="checkbox" id="m-sick" ${curSick ? "checked" : ""}/> 🤒 生病（异常储水）
       </label>
       <p class="muted" style="font-size:12px;margin:0 0 10px">生病会抑制排尿、加重储水，将作为暂时储水单独分析，不污染趋势判断。</p>
+      <label style="display:flex;align-items:center;gap:8px;margin:10px 0 2px;font-weight:600;color:#C0564F">
+        <input type="checkbox" id="m-salty" ${curSalty ? "checked" : ""}/> 🧂 吃咸了（异常储水）
+      </label>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">钠摄入过多会让身体储水排钠，体重暂时虚高，诱因解除（多喝水排钠）后即回落。</p>
       <label class="muted" style="display:block;margin:10px 0 4px;font-weight:600">备注 / 诱因（超标或低热量原因）</label>
       <textarea id="m-note" placeholder="超标原因：聚餐 / 情绪性进食……  或  低热量原因：忙碌漏餐 / 身体不适……">${note}</textarea>
       <div class="modal-actions">
@@ -1285,10 +1312,12 @@
       ex[day] = e === "" ? undefined : Number(e);
       urn[day] = u ? u : undefined;
       sick[day] = $("#m-sick").checked ? true : undefined;
+      salty[day] = $("#m-salty").checked ? true : undefined;
       cal.notes[day] = $("#m-note").value.trim();
       if (cal.days[day] == null) delete cal.notes[day];
       if (urn[day] == null) delete urn[day];
       if (sick[day] == null) delete sick[day];
+      if (salty[day] == null) delete salty[day];
       save();
       closeModal();
       renderWeight();
@@ -1299,6 +1328,7 @@
       delete ex[day];
       delete urn[day];
       delete sick[day];
+      delete salty[day];
       delete cal.notes[day];
       save();
       closeModal();
@@ -2836,7 +2866,7 @@
     return {
       profile: { gender: "女", age: 28, height: 165, activity: 1.375, target: 52 },
       menstrual: { lastStart: "", cycleLen: 28, periodLen: 5 },
-      calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {}, urine: {}, hunger: {}, sick: {},
+      calories: {}, weight: {}, exercise: {}, mood: {}, work: {}, monthly: {}, urine: {}, hunger: {}, sick: {}, salty: {},
       cat: { cats: { "泡泡": { litter: {}, weight: {} }, "喵喵": { litter: {}, weight: {} } }, active: "泡泡" },
       baby: {},
     };
@@ -2867,7 +2897,7 @@
   // 合并导入：保留本地已有，补齐缺失（按 月/日 粒度）
   function mergeState(obj) {
     const src = obj || {};
-    ["calories", "weight", "exercise", "mood", "work", "monthly", "urine", "hunger", "sick"].forEach((k) => {
+    ["calories", "weight", "exercise", "mood", "work", "monthly", "urine", "hunger", "sick", "salty"].forEach((k) => {
       if (!src[k]) return;
       if (!state[k]) state[k] = {};
       for (const mk in src[k]) {
