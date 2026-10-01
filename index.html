@@ -8569,6 +8569,31 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     set("rv", (mm, v) => (mm.review = v));
     set("th", (mm, v) => (mm.thoughts = v));
   }
+  // 年度运动汇总：跨全年各月「运动表现」明细自动聚合（次数 / 时长 / 消耗 / 按类型 / 活跃天数）
+  function yearExerciseSummary(Y) {
+    const months = monthsOfYear(Y);
+    let total = 0, totalMin = 0, totalCal = 0;
+    const byType = {};
+    const days = new Set();
+    months.forEach((mk) => {
+      exerciseSessionsOf(mk).forEach((r) => {
+        total++;
+        totalMin += Number(r.durMin) || 0;
+        totalCal += Number(r.cal) || 0;
+        if (r.date) days.add(r.date);
+        const o = (byType[r.type] = byType[r.type] || { n: 0, min: 0, cal: 0 });
+        o.n++; o.min += Number(r.durMin) || 0; o.cal += Number(r.cal) || 0;
+      });
+    });
+    const typeRows = Object.keys(byType)
+      .sort((a, b) => byType[b].cal - byType[a].cal)
+      .map((tp) => {
+        const o = byType[tp];
+        return `<div class="method-bar"><span class="method-name">${escHtml(tp)}</span><span class="method-track"><span class="method-fill" style="width:${o.n > 0 ? Math.round((o.n / total) * 100) : 0}%"></span></span><span class="method-n">${o.n}次 · ${durText(o.min)} · ${o.cal}大卡</span></div>`;
+      })
+      .join("");
+    return { total, totalMin, totalCal, days: days.size, typeRows };
+  }
   // 年度总结：根据各月「月度总结」填写的数据 + 原始数据，自动汇总当年
   function annualPanelHTML() {
     const Y = Number(monthKey().split("-")[0]);
@@ -8594,6 +8619,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     const mo = moodYear(Y);
     const ca = calorieYear(Y);
     const cab = calorieBalanceYear(Y);
+    const exY = yearExerciseSummary(Y);
     const stat = (k, n, u, color) =>
       `<div class="mp-stat"><div class="k">${k}</div><div class="n"${color ? ` style="color:${color}"` : ""}>${n}${u ? `<span class="u">${u}</span>` : ""}</div></div>`;
     const grid = [
@@ -8611,6 +8637,10 @@ summary.lbg-head::-webkit-details-marker{display:none;}
       stat("全年累计热量差", cab ? (cab.sum > 0 ? "+" : "") + cab.sum : "—", "大卡", cab ? netBalTextColor(-cab.sum) : null),
       stat("日均热量差", cab ? (cab.avg > 0 ? "+" : "") + cab.avg : "—", "大卡", cab ? netBalTextColor(-cab.avg) : null),
       stat("预计减脂/增重", cab ? (cab.fatKg > 0 ? "减脂 " : cab.fatKg < 0 ? "增重 " : "") + Math.abs(cab.fatKg).toFixed(1) : "—", "kg"),
+      stat("🏃 运动次数", exY.total ? exY.total : "—", "次"),
+      stat("🏃 运动时长", exY.totalMin ? durText(exY.totalMin) : "—"),
+      stat("🏃 运动消耗", exY.totalCal ? exY.totalCal : "—", "大卡"),
+      stat("🏃 运动活跃天数", exY.days ? exY.days : "—", "天"),
     ].join("");
 
     const cards = rows
@@ -8649,6 +8679,20 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     );
     return `
       <div class="mp-grid">${grid}</div>
+      ${
+        exY.total
+          ? `
+      <div class="field" style="margin-top:16px"><label>🏃 全年运动表现汇总（自动关联「运动表现」明细）</label>
+        <div class="mp-stat-row" style="margin-top:8px">
+          <div class="mp-stat"><div class="k">总次数</div><div class="n">${exY.total}<span class="u">次</span></div></div>
+          <div class="mp-stat"><div class="k">总时长</div><div class="n">${durText(exY.totalMin)}</div></div>
+          <div class="mp-stat"><div class="k">总消耗</div><div class="n">${exY.totalCal}<span class="u">大卡</span></div></div>
+          <div class="mp-stat"><div class="k">活跃天数</div><div class="n">${exY.days}<span class="u">天</span></div></div>
+        </div>
+        <div class="method-list" style="margin-top:10px">${exY.typeRows}</div>
+      </div>`
+          : ""
+      }
       <div class="field" style="margin-top:16px"><label>📥 月度记录自动带入（每月填写的回顾 / 思考 / 小结）</label>
         <div class="annual-list">${
           hasAny ? cards : '<div class="muted" style="padding:8px 0">还没有任何月份填写可供年度汇总的数据，去前面各月标签页补上吧。</div>'
