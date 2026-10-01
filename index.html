@@ -2835,21 +2835,75 @@ summary.lbg-head::-webkit-details-marker{display:none;}
   }
 
   /* ---------- 身体参数 / BMR / TDEE ---------- */
-  function getWeightForBMR() {
-    const { y, m } = ym();
-    const wm = state.weight[monthKey()];
-    if (wm) {
-      const days = Object.keys(wm)
-        .map(Number)
-        .sort((a, b) => b - a);
-      for (const d of days) if (wm[d] != null) return Number(wm[d]);
+  // 取“某天”用于代谢计算的体重：优先当天当月记录；否则向前回溯最近一次有效记录（含跨月）；
+  // 都没有则返回 null（由调用方决定是否回退目标体重）。
+  function weightForDay(mk, d) {
+    const wt = state.weight[mk];
+    if (wt && wt[d] != null) return Number(wt[d]);
+    const [y, m] = mk.split("-").map(Number);
+    let bestY = null, bestM = null, bestD = null;
+    // 同月：d 之前最近一次
+    if (wt) {
+      const ds = Object.keys(wt).map(Number).filter((x) => x < d && wt[x] != null).sort((a, b) => a - b);
+      if (ds.length) { bestY = y; bestM = m; bestD = ds[ds.length - 1]; }
     }
-    return Number(state.profile.target) || 55;
+    // 往前逐月回溯（直到 2000 年，足够）
+    let cy = y, cm = m;
+    while (bestY === null && cy > 2000) {
+      cm--; if (cm < 1) { cm = 12; cy--; }
+      const pwt = state.weight[`${cy}-${pad(cm)}`];
+      if (pwt) {
+        const ds = Object.keys(pwt).map(Number).filter((x) => pwt[x] != null).sort((a, b) => a - b);
+        if (ds.length) { bestY = cy; bestM = cm; bestD = ds[ds.length - 1]; }
+      }
+    }
+    if (bestY === null) return null;
+    return Number(state.weight[`${bestY}-${pad(bestM)}`][bestD]);
+  }
+  // 某天基础代谢（基于当天体重，回退最近一次）
+  function bmrForDay(mk, d) {
+    const p = state.profile;
+    if (!p.age || !p.height) return null;
+    const w = weightForDay(mk, d);
+    if (w == null) return null;
+    const base = 10 * w + 6.25 * p.height - 5 * p.age;
+    return p.gender === "男" ? base + 5 : base - 161;
+  }
+  // 某天每日消耗（基于当天体重，回退最近一次）
+  function tdeeForDay(mk, d) {
+    const bmr = bmrForDay(mk, d);
+    if (bmr == null) return null;
+    return bmr * (Number(state.profile.activity) || 1.375);
+  }
+  // 当前用于“身体参数卡”的体重与来源日期：
+  // 今天有记录优先；否则回溯最近一次（<= 今天，含跨月）；再否则回退目标体重。
+  function getWeightForBMR() {
+    const mk = monthKey();
+    const { y, m } = ym();
+    const today = Number(todayKey().split("-")[2]);
+    const wm = state.weight[mk];
+    if (wm && wm[today] != null) return { weight: Number(wm[today]), dateLabel: todayKey() };
+    let best = null;
+    if (wm) {
+      const ds = Object.keys(wm).map(Number).filter((x) => x < today && wm[x] != null).sort((a, b) => a - b);
+      if (ds.length) best = { y, m, d: ds[ds.length - 1] };
+    }
+    let cy = y, cm = m;
+    while (!best && cy > 2000) {
+      cm--; if (cm < 1) { cm = 12; cy--; }
+      const pwt = state.weight[`${cy}-${pad(cm)}`];
+      if (pwt) {
+        const ds = Object.keys(pwt).map(Number).filter((x) => pwt[x] != null).sort((a, b) => a - b);
+        if (ds.length) best = { y: cy, m: cm, d: ds[ds.length - 1] };
+      }
+    }
+    if (best) return { weight: Number(state.weight[`${best.y}-${pad(best.m)}`][best.d]), dateLabel: `${best.y}-${pad(best.m)}-${pad(best.d)}` };
+    return { weight: Number(state.profile.target) || 55, dateLabel: null };
   }
   function computeBMR() {
     const p = state.profile;
-    const w = getWeightForBMR();
     if (!p.age || !p.height) return null;
+    const w = getWeightForBMR().weight;
     const base = 10 * w + 6.25 * p.height - 5 * p.age;
     return p.gender === "男" ? base + 5 : base - 161;
   }
@@ -3138,9 +3192,13 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     const daysToNext = np ? diffDays(todayKey(), np) : null;
     const overrideActive = !!(state.menstrual.lastStart && state.menstrual.nextOverride);
     const latestW = getLatestWeightInMonth();
+    const bmrInfo = getWeightForBMR();
+    const bmrVal = computeBMR();
+    const wSrc = bmrInfo.dateLabel && bmrInfo.dateLabel !== todayKey()
+      ? `<span style="font-size:10px;font-weight:400;opacity:.75">（基于 ${bmrInfo.dateLabel} 体重）</span>` : "";
     $("#profile-stats").innerHTML = [
-      ["基础代谢 BMR", computeBMR() ? Math.round(computeBMR()) : "—", "大卡"],
-      ["每日消耗 TDEE", tdee ? Math.round(tdee) : "—", "大卡"],
+      ["基础代谢 BMR" + wSrc, bmrVal ? Math.round(bmrVal) : "—", "大卡"],
+      ["每日消耗 TDEE" + wSrc, tdee ? Math.round(tdee) : "—", "大卡"],
       ["目标体重", state.profile.target || "—", "kg"],
       ["最新体重", latestW ? latestW.toFixed(1) : "—", "kg"],
       ["当前相位", state.menstrual.lastStart ? curPhase.label : "未设置", ""],
@@ -3264,7 +3322,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     });
 
     /* —— 净差值热力图（TDEE − (吃的热量 − 运动)），结构与热量图一致，仅计算方式不同 —— */
-    renderNetHeatmap(cal, ex, total, tdee);
+    renderNetHeatmap(cal, ex, total, mk);
 
     /* —— 热量 + 差值统计 —— */
     const mealObj = ensureMeal();
@@ -3280,9 +3338,10 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     const PMAP = { b: "早餐", l: "午餐", d: "晚餐" };
     const dailyBalRows = [];
     for (let d = 1; d <= total; d++) {
-      if (cal.days[d] != null && tdee != null) {
+      const dTdee = tdeeForDay(mk, d);
+      if (cal.days[d] != null && dTdee != null) {
         const exK = ex[d] ? Number(ex[d]) : 0;
-        const bal = Math.round(Number(tdee) - (Number(cal.days[d]) - exK));
+        const bal = Math.round(Number(dTdee) - (Number(cal.days[d]) - exK));
         cumDef += bal;
         defDays++;
         // 当天三餐明细（早/午/晚）：默认折叠，点开看具体吃了什么、多少卡
@@ -3317,8 +3376,8 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     const statRow = (k, n, u) =>
       `<div class="stat"><div class="k">${k}</div><div class="n">${n}<span class="u">${u}</span></div></div>`;
     // 核心指标（始终可见）：盈亏 + 预计减重
-    const coreHtml = statRow("日均热量盈亏", tdee ? Math.round(cumDef / defDays) : "—", "大卡")
-      + statRow("累计热量盈亏", tdee ? Math.round(cumDef) : "—", "大卡")
+    const coreHtml = statRow("日均热量盈亏", defDays ? Math.round(cumDef / defDays) : "—", "大卡")
+      + statRow("累计热量盈亏", defDays ? Math.round(cumDef) : "—", "大卡")
       + statRow("预计减重", defDays ? fatKg.toFixed(1) : "—", "kg");
     // 基础统计（折叠）
     const baseHtml = statRow("录入天数", calVals.length, "天")
@@ -3471,7 +3530,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     renderCalorieAlert(cal, total);
 
     /* —— 体重表 + 图表 + 分析 —— */
-    renderWeightTableAndChart(cal, wt, ex, total, tdee);
+    renderWeightTableAndChart(cal, wt, ex, total, mk);
     renderUrine();
     renderWater();
     renderWeightAnalysis(wt, total, tdee);
@@ -3518,7 +3577,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
   // TDEE − (吃的热量 − 运动消耗)：
   //   正数 = 当日热量缺口（低于 TDEE，利于减脂）
   //   负数 = 当日盈余（超过 TDEE，即"热量负数"，需关注）
-  function renderNetHeatmap(cal, ex, total, tdee) {
+  function renderNetHeatmap(cal, ex, total, mk) {
     const nm = $("#weight-netmap");
     if (!nm) return;
     // 图例（负=红、正=绿，突出"是否有热量负数"）
@@ -3538,10 +3597,11 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     for (let i = 0; i < off; i++) html += `<div></div>`;
     for (let d = 1; d <= total; d++) {
       const c = cal.days[d];
+      const dt = tdeeForDay(mk, d);
       const v =
-        c != null && tdee != null
+        c != null && dt != null
           ? Math.round(
-              Number(tdee) -
+              Number(dt) -
                 (Number(c) - (ex[d] != null && ex[d] !== "" ? Number(ex[d]) : 0))
             )
           : null;
@@ -3560,8 +3620,8 @@ summary.lbg-head::-webkit-details-marker{display:none;}
   }
 
   let weightChart;
-  function renderWeightTableAndChart(cal, wt, ex, total, tdee) {
-    const { y, m } = ym();
+  function renderWeightTableAndChart(cal, wt, ex, total, mk) {
+    const { y, m } = mk.split("-").map(Number);
 
     // 表格（仍按当前月）
     const tb = $("#weight-table tbody");
@@ -3570,8 +3630,9 @@ summary.lbg-head::-webkit-details-marker{display:none;}
       if (wt[d] != null) {
         const ph = phaseForDay(y, m, d);
         let diff = "—";
-        if (cal.days[d] != null && tdee != null)
-          diff = Math.round(Number(cal.days[d]) - tdee - (ex[d] ? Number(ex[d]) : 0));
+        const dt = tdeeForDay(mk, d);
+        if (cal.days[d] != null && dt != null)
+          diff = Math.round(Number(cal.days[d]) - dt - (ex[d] ? Number(ex[d]) : 0));
         rows.push(
           `<tr><td>${monthKey()}-${pad(d)}</td><td>${Number(wt[d]).toFixed(1)}</td><td>${
             diff === "—" ? diff : (diff > 0 ? "+" : "") + diff
@@ -8366,8 +8427,9 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     let cumDef = 0,
       defDays = 0;
     Object.keys(cal.days).forEach((d) => {
-      if (tdee != null) {
-        cumDef += Number(cal.days[d]) - tdee - (ex[d] ? Number(ex[d]) : 0);
+      const dt = tdeeForDay(k, Number(d));
+      if (dt != null) {
+        cumDef += Number(cal.days[d]) - dt - (ex[d] ? Number(ex[d]) : 0);
         defDays++;
       }
     });
@@ -10019,8 +10081,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
   //   sum 为正 = 全年总盈余（超过 TDEE）；为负 = 全年总缺口（低于 TDEE，利于减脂）
   //   fatKg = −sum / 7700（正=减脂，负=增重）
   function calorieBalanceYear(Y) {
-    const tdee = computeTDEE();
-    if (tdee == null) return null;
+    if (computeBMR() == null) return null;
     let sum = 0, days = 0;
     monthsOfYear(Y).forEach((mk) => {
       const cal = (state.calories[mk] || {}).days || {};
@@ -10029,7 +10090,9 @@ summary.lbg-head::-webkit-details-marker{display:none;}
         const c = Number(cal[d]);
         if (isNaN(c)) return;
         const e = ex[d] != null ? Number(ex[d]) : 0;
-        sum += c - tdee - e; // 与月度面板口径一致：正=盈余，负=缺口
+        const dt = tdeeForDay(mk, Number(d));
+        if (dt == null) return; // 该天无体重信息则跳过，避免用错权重
+        sum += c - dt - e; // 与月度面板口径一致：正=盈余，负=缺口
         days++;
       });
     });
@@ -10038,8 +10101,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
   }
   // 单月「热量差」：口径与月度面板/年度一致 = Σ(摄入 − TDEE − 运动)，正=盈余，负=缺口
   function monthCalorieBalance(mk) {
-    const tdee = computeTDEE();
-    if (tdee == null) return null;
+    if (computeBMR() == null) return null;
     const cal = (state.calories[mk] || {}).days || {};
     const ex = (state.exercise[mk] || {}).days || {};
     let sum = 0, days = 0;
@@ -10047,7 +10109,9 @@ summary.lbg-head::-webkit-details-marker{display:none;}
       const c = Number(cal[d]);
       if (isNaN(c)) return;
       const e = ex[d] != null ? Number(ex[d]) : 0;
-      sum += c - tdee - e;
+      const dt = tdeeForDay(mk, Number(d));
+      if (dt == null) return; // 该天无体重信息则跳过，避免用错权重
+      sum += c - dt - e;
       days++;
     });
     if (!days) return null;
@@ -11498,7 +11562,7 @@ summary.lbg-head::-webkit-details-marker{display:none;}
     const trendCard = document.getElementById("card-w-trend");
     const urineCard = document.getElementById("card-w-urine");
     if (trendCard && !trendCard.classList.contains("collapsed"))
-      renderWeightTableAndChart(ensureCal(), ensureWeight(), ensureExercise(), daysInMonth(), computeTDEE());
+      renderWeightTableAndChart(ensureCal(), ensureWeight(), ensureExercise(), daysInMonth(), monthKey());
     if (urineCard && !urineCard.classList.contains("collapsed")) renderUrine();
     const waterCard = document.getElementById("card-w-water");
     if (waterCard && !waterCard.classList.contains("collapsed")) renderWater();
